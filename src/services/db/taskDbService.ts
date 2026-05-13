@@ -33,6 +33,17 @@ export async function getTasks(clinicId?: string): Promise<DbTask[]> {
   return data ?? MOCK_DB_TASKS;
 }
 
+export async function getTasksByMessageId(messageId: string): Promise<DbTask[]> {
+  if (!isSupabaseConfigured()) {
+    return MOCK_DB_TASKS.filter(t => t.source_message_id === messageId);
+  }
+
+  const sb = getSupabaseClient()!;
+  const { data, error } = await sb.from('tasks').select('*').eq('source_message_id', messageId);
+  if (error) { console.error('[taskDbService] getTasksByMessageId:', error.message); return []; }
+  return data ?? [];
+}
+
 export async function getTaskById(id: string): Promise<DbTask | null> {
   if (!isSupabaseConfigured()) {
     return MOCK_DB_TASKS.find(t => t.id === id) ?? null;

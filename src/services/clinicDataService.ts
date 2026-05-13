@@ -5,7 +5,8 @@
 import type { InboxMessage, Task, Staff, Tone, Risk } from '@/types';
 import type { DbPatientMessage, DbTask, DbStaff, MessageStatus, TaskStatus } from '@/types/database';
 import { getMessages, updateMessageStatus as dbUpdateMessage } from './db/messageService';
-import { getTasks, updateTaskStatus as dbUpdateTask } from './db/taskDbService';
+import { getTasks, updateTaskStatus as dbUpdateTask, getTasksByMessageId } from './db/taskDbService';
+import { getDraftForMessage, updateDraftStatus } from './db/draftService';
 import { getStaff } from './db/staffService';
 import { INBOX } from '@/data/mockMessages';
 import { TASKS } from '@/data/mockTasks';
@@ -41,6 +42,21 @@ function riskToTone(risk: string | null): Tone {
   return 'sage';
 }
 
+// Status badge tone — semantic, not risk-based.
+function msgStatusTone(status: string, risk: Risk): Tone {
+  switch (status) {
+    case 'resolved':     return 'sage';   // green — completed
+    case 'approved':     return 'sage';   // green — positive
+    case 'new':          return 'neutral'; // neutral — not yet triaged
+    case 'analyzing':    return 'cream';  // soft amber — in progress
+    case 'escalated':    return 'red';    // red — urgent
+    case 'needs_review':
+      // severity of "needs review" depends on risk
+      return risk === 'high' ? 'red' : risk === 'medium' ? 'amber' : 'sage';
+    default:             return 'neutral';
+  }
+}
+
 function roleToTone(role: string | null): Tone {
   switch ((role ?? '').toLowerCase()) {
     case 'clinician':          return 'sage';
@@ -53,13 +69,13 @@ function roleToTone(role: string | null): Tone {
 
 function categoryToIconKey(category: string | null): string {
   switch ((category ?? '').toLowerCase()) {
-    case 'clinical':              return 'stethoscope';
-    case 'billing':               return 'dollar';
-    case 'scheduling':            return 'calendar';
-    case 'post-procedure symptom':return 'eye';
-    case 'procedure prep':        return 'pill';
-    case 'insurance / documents': return 'file';
-    default:                      return 'file';
+    case 'clinical':               return 'stethoscope';
+    case 'billing':                return 'dollar';
+    case 'scheduling':             return 'calendar';
+    case 'post-procedure symptom': return 'eye';
+    case 'procedure prep':         return 'pill';
+    case 'insurance / documents':  return 'file';
+    default:                       return 'file';
   }
 }
 
@@ -96,24 +112,25 @@ function msgStatusLabel(status: string): string {
 }
 
 function dbMessageToInbox(msg: DbPatientMessage): InboxMessage {
-  const risk = (msg.risk_level ?? 'low') as Risk;
-  const tone = riskToTone(risk);
+  const risk     = (msg.risk_level ?? 'low') as Risk;
+  const iconTone = riskToTone(risk);                        // icon reflects risk
+  const statusTone = msgStatusTone(msg.status, risk);       // badge reflects status semantics
   return {
-    id:          msg.id,
-    patient:     msg.patient_name,
+    id:           msg.id,
+    patient:      msg.patient_name,
     patientShort: msg.patient_name.split(' ').pop() ?? msg.patient_name,
-    initials:    toInitials(msg.patient_name),
-    message:     msg.message_text,
-    category:    msg.category ?? 'General',
+    initials:     toInitials(msg.patient_name),
+    message:      msg.message_text,
+    category:     msg.category ?? 'General',
     risk,
-    status:      msgStatusLabel(msg.status),
-    statusTone:  tone,
-    received:    formatReceived(msg.created_at),
-    routeTo:     msg.route_to ?? 'Staff',
-    iconKey:     categoryToIconKey(msg.category),
-    iconTone:    tone,
-    reason:      `Message from ${msg.patient_name} — awaiting staff review.`,
-    draft:       `Thank you for reaching out. A staff member will follow up shortly.`,
+    status:       msgStatusLabel(msg.status),
+    statusTone,
+    received:     formatReceived(msg.created_at),
+    routeTo:      msg.route_to ?? 'Staff',
+    iconKey:      categoryToIconKey(msg.category),
+    iconTone,
+    reason:       `Message from ${msg.patient_name} — awaiting staff review.`,
+    draft:        `Thank you for reaching out. A staff member will follow up shortly.`,
     task: {
       title:    `Review message from ${msg.patient_name}`,
       priority: risk === 'high' ? 'Urgent' : risk === 'medium' ? 'Medium' : 'Low',
@@ -140,7 +157,8 @@ function taskStatusTone(s: string): Tone {
   switch (s) {
     case 'pending_approval': return 'cream';
     case 'needs_review':     return 'amber';
-    case 'resolved':         return 'sage';
+    case 'resolved':         return 'sage';   // green — completed
+    case 'in_progress':      return 'amber';
     default:                 return 'neutral';
   }
 }
@@ -175,11 +193,11 @@ function dbTaskToTask(
   staffList: DbStaff[],
   patientNameById: Record<string, string>,
 ): Task {
-  const dbStaff = staffList.find(s => s.id === task.assigned_to);
-  const assignee: Staff = dbStaff ? dbStaffToUi(dbStaff) : fallbackAssignee(task.assigned_role);
+  const dbStaff  = staffList.find(s => s.id === task.assigned_to);
+  const assignee = dbStaff ? dbStaffToUi(dbStaff) : fallbackAssignee(task.assigned_role);
 
   const patientName = task.source_message_id ? patientNameById[task.source_message_id] : null;
-  const source = patientName ? `${patientName} message` : 'Back-office item';
+  const source      = patientName ? `${patientName} message` : 'Back-office item';
 
   const pLabel = priorityLabel(task.priority) as Task['priority'];
   const pTone  = riskToTone(task.priority === 'urgent' ? 'high' : task.priority);
@@ -204,10 +222,13 @@ function dbTaskToTask(
 
 // ─── public API ───────────────────────────────────────────────────────────────
 
+// Returns only unresolved messages — inbox is a work queue, not a history view.
 export async function getInboxMessages(): Promise<InboxMessage[]> {
   const msgs = await getMessages();
   if (!msgs.length) return INBOX;
-  return msgs.map(dbMessageToInbox);
+  return msgs
+    .filter(m => m.status !== 'resolved')
+    .map(dbMessageToInbox);
 }
 
 export async function getTaskList(): Promise<Task[]> {
@@ -222,6 +243,29 @@ export async function getTaskList(): Promise<Task[]> {
   messages.forEach(m => { patientNameById[m.id] = m.patient_name; });
 
   return dbTasks.map(t => dbTaskToTask(t, staffList, patientNameById));
+}
+
+// Resolves a message and cascades to all related tasks and the draft.
+export async function resolveMessageWorkflow(messageId: string): Promise<void> {
+  // 1. Resolve the patient message
+  const msgResult = await dbUpdateMessage(messageId, 'resolved');
+  console.log('[resolveMessageWorkflow] message update →', msgResult?.status ?? 'error', { id: messageId });
+
+  // 2. Resolve all tasks linked to this message
+  const relatedTasks = await getTasksByMessageId(messageId);
+  console.log(`[resolveMessageWorkflow] found ${relatedTasks.length} related task(s)`);
+
+  for (const task of relatedTasks) {
+    const taskResult = await dbUpdateTask(task.id, 'resolved');
+    console.log(`[resolveMessageWorkflow] task "${task.title}" → ${taskResult?.status ?? 'error'}`, { id: task.id });
+  }
+
+  // 3. Approve the draft if one exists (DraftStatus has no 'resolved', use 'approved')
+  const draft = await getDraftForMessage(messageId);
+  if (draft && draft.status === 'needs_review') {
+    const draftResult = await updateDraftStatus(draft.id, 'approved');
+    console.log('[resolveMessageWorkflow] draft update →', draftResult?.status ?? 'error', { id: draft.id });
+  }
 }
 
 export async function updateInboxMessageStatus(
