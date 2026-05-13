@@ -8,6 +8,7 @@ import { Button, Badge, IconTile, ConfidenceMini, ReviewDisclaimer, Dot } from '
 import {
   IconRefresh, IconArrowUp, IconSparkles, IconSend, IconShieldCheck, IconLayers,
 } from './Icons';
+import { analyzePatientMessageAndPersist } from '@/services/agentService';
 
 export function PatientChatSimulator() {
   const seed = SIM_CONVERSATIONS[0];
@@ -16,34 +17,51 @@ export function PatientChatSimulator() {
   const [showWorkflow, setShowWorkflow] = useState(true);
   const [input, setInput] = useState('');
   const [running, setRunning] = useState(false);
+  const [patientName, setPatientName] = useState('Simulator Patient');
   const scrollRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     if (scrollRef.current) scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
   }, [messages]);
 
-  const runWorkflow = () => {
-    if (!input.trim()) {
+  const runWorkflow = async () => {
+    const userText = input.trim();
+    if (!userText) {
+      // Re-animate the panel with mock data if no input
       setRunning(true);
       setShowWorkflow(false);
       setTimeout(() => { setShowWorkflow(true); setRunning(false); }, 700);
       return;
     }
-    const userText = input.trim();
-    const time = 'Now';
+
+    const time = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
     setMessages((m) => [...m, { who: 'patient', text: userText, t: time }]);
     setInput('');
     setRunning(true);
     setShowWorkflow(false);
-    setTimeout(() => {
+
+    try {
+      const result = await analyzePatientMessageAndPersist(userText, patientName);
+
+      setWorkflow(result.workflow);
       setMessages((m) => [...m, {
         who: 'assistant',
-        text: "Thanks — I've routed your note to our team. A staff member will respond shortly. If this is urgent, please call the clinic at (734) 555-0142.",
-        t: time, draft: true,
+        text: result.draftText,
+        t: time,
+        draft: true,
       }]);
+    } catch (err) {
+      console.error('[PatientChatSimulator] workflow error:', err);
+      setMessages((m) => [...m, {
+        who: 'assistant',
+        text: "I've received your message and routed it to our team. A staff member will respond shortly. For urgent concerns, please call (734) 555-0142.",
+        t: time,
+        draft: true,
+      }]);
+    } finally {
       setShowWorkflow(true);
       setRunning(false);
-    }, 900);
+    }
   };
 
   const resetConversation = () => {
@@ -105,6 +123,12 @@ export function PatientChatSimulator() {
             </div>
 
             <div className="ph-composer">
+              <input
+                placeholder="Patient name (optional)"
+                value={patientName === 'Simulator Patient' ? '' : patientName}
+                onChange={(e) => setPatientName(e.target.value || 'Simulator Patient')}
+                style={{ fontSize: 12, padding: '6px 10px', borderRadius: 8, border: '1px solid var(--border)', background: 'var(--paper)', color: 'var(--fg2)', outline: 'none' }}
+              />
               <div className="row">
                 <input
                   placeholder="Type a patient message…"
