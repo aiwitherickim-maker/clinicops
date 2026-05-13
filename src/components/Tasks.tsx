@@ -1,14 +1,19 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { TASKS, TASK_FILTERS } from '@/data/mockTasks';
 import type { Task } from '@/types';
 import { Button, Badge, IconTile } from './Primitives';
 import { IconRefresh, IconPlus, IconFilter, IconChevronDown, IconClock, IconBot, IconShieldCheck } from './Icons';
+import { getTaskList, updateTaskStatusById } from '@/services/clinicDataService';
 
 export function Tasks() {
   const [filter, setFilter] = useState('all');
   const [tasks, setTasks] = useState<Task[]>(TASKS);
+
+  useEffect(() => {
+    getTaskList().then(setTasks);
+  }, []);
 
   const filtered = tasks.filter((t) => {
     if (filter === 'all')     return true;
@@ -20,6 +25,7 @@ export function Tasks() {
     setTasks((list) =>
       list.map((t) => t.id === id ? { ...t, status: 'Open', statusTone: 'neutral' } : t)
     );
+    updateTaskStatusById(id, 'open');
   };
 
   return (

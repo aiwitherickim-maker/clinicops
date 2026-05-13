@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Sidebar, TopBar } from '@/components/Sidebar';
 import { Dashboard } from '@/components/Dashboard';
 import { PatientChatSimulator } from '@/components/PatientChatSimulator';
@@ -11,12 +11,17 @@ import { ClinicSetup } from '@/components/ClinicSetup';
 import { INBOX } from '@/data/mockMessages';
 import { TASKS } from '@/data/mockTasks';
 import type { InboxMessage } from '@/types';
+import { getInboxMessages, updateInboxMessageStatus } from '@/services/clinicDataService';
 
 type Section = 'dashboard' | 'chat' | 'inbox' | 'command' | 'tasks' | 'setup';
 
 export default function Home() {
   const [section, setSection] = useState<Section>('dashboard');
   const [inbox, setInbox] = useState<InboxMessage[]>(INBOX);
+
+  useEffect(() => {
+    getInboxMessages().then(setInbox);
+  }, []);
 
   const reviewCount = inbox.filter(
     (m) => m.risk === 'high' || m.status?.toLowerCase().includes('review')
@@ -25,6 +30,7 @@ export default function Home() {
 
   const handleResolve = (msg: InboxMessage) => {
     setInbox((prev) => prev.filter((m) => m.id !== msg.id));
+    updateInboxMessageStatus(msg.id, 'resolved');
   };
 
   return (
