@@ -1,0 +1,153 @@
+/* =========================================================
+   NITRA DESIGN SYSTEM — Colors, Type, and Foundational Tokens
+   Palette sampled directly from Nitra marketing + product screenshots
+   (forest deep teal · sage · cream · orange CTA).
+   ========================================================= */
+
+@import url("https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap");
+
+:root {
+  /* ---------- Brand foundation ---------- */
+  --forest:           #1C3739;   /* primary brand dark — page bg, sidebar */
+  --forest-2:         #274D4B;   /* lighter inner panel / hover-on-dark */
+  --forest-3:         #3A5554;   /* divider on dark surfaces */
+  --forest-ink:       #0F2627;   /* deepest — emphasis on dark */
+
+  --sage:             #4F979A;   /* in-product mid accent (charts, progress) */
+  --sage-soft:        #E4F3F3;   /* pale tint — avatars, status soft bg */
+  --sage-deep:        #346669;   /* hover for sage interactive */
+
+  --orange:           #EA8324;   /* primary CTA — "Get Started" */
+  --orange-dark:      #C56A14;   /* hover */
+  --orange-soft:      #FCE9D2;   /* pale tint */
+
+  --cream:            #F4EFE5;   /* warm off-white card tint (used sparingly) */
+  --paper:            #FFFFFF;   /* primary surface */
+  --paper-2:          #F7F8F9;   /* secondary surface — settings panels */
+  --shell:            #F8FAF9;   /* page bg when not forest */
+
+  /* ---------- Text ---------- */
+  --fg1:              #0F2627;   /* primary on light */
+  --fg2:              #3F5557;   /* secondary on light */
+  --fg3:              #6B7C7D;   /* tertiary on light */
+  --fg-inverse:       #FFFFFF;
+  --fg-on-dark-1:     #FFFFFF;   /* primary on forest */
+  --fg-on-dark-2:     #B9C5C5;   /* secondary on forest */
+  --fg-on-dark-3:     #8DA0A0;   /* tertiary on forest */
+
+  /* ---------- Status (resampled to brand) ---------- */
+  --success:          #2E7D5E;   /* "Confirmed" green */
+  --success-soft:     #E3F1E8;
+  --review:           #C29032;   /* "Rescheduling" amber */
+  --review-soft:      #FAF0D8;
+  --danger:           #CA5445;   /* notification red from product */
+  --danger-soft:      #FBE3DF;
+  --info:             #4F979A;   /* sage doubles as info */
+  --info-soft:        #E4F3F3;
+
+  /* ---------- Borders ---------- */
+  --border:           #E5E8E7;   /* hairline on light */
+  --border-strong:    #C7CDCB;
+  --border-muted:     #EFF1F0;
+  --border-on-dark:   #2E4847;   /* hairline on forest */
+
+  /* ---------- Radii ---------- */
+  --r-sm:   8px;
+  --r-md:   12px;
+  --r-lg:   16px;
+  --r-xl:   20px;
+  --r-2xl:  28px;
+  --r-pill: 999px;
+
+  /* ---------- Shadows ---------- */
+  --shadow-card:     0 1px 2px rgba(15, 38, 39, 0.05), 0 1px 3px rgba(15, 38, 39, 0.06);
+  --shadow-elevated: 0 12px 28px rgba(15, 38, 39, 0.12), 0 2px 6px rgba(15, 38, 39, 0.06);
+  --shadow-card-dark: 0 10px 30px rgba(0,0,0,0.35), 0 2px 8px rgba(0,0,0,0.2);
+  --shadow-focus:    0 0 0 4px rgba(234, 131, 36, 0.22);
+  --shadow-focus-sage: 0 0 0 4px rgba(79, 151, 154, 0.22);
+
+  /* ---------- Spacing scale (4px base) ---------- */
+  --space-1: 4px; --space-2: 8px; --space-3: 12px; --space-4: 16px;
+  --space-5: 20px; --space-6: 24px; --space-8: 32px; --space-10: 40px; --space-12: 48px;
+
+  /* ---------- Type ---------- */
+  --font-sans: "Inter", ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont,
+               "Segoe UI", sans-serif;
+  --font-mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+
+  --w-regular:  400;
+  --w-medium:   500;
+  --w-semibold: 600;
+  --w-bold:     700;
+  --w-extra:    800;
+
+  --t-xs:   12px;
+  --t-sm:   14px;
+  --t-base: 15px;
+  --t-md:   16px;
+  --t-lg:   18px;
+  --t-xl:   20px;
+  --t-2xl:  24px;
+  --t-3xl:  32px;
+  --t-4xl:  44px;
+  --t-5xl:  64px;     /* marketing-scale display */
+
+  --lh-tight:   1.05;
+  --lh-snug:    1.2;
+  --lh-normal:  1.5;
+  --lh-relaxed: 1.65;
+}
+
+/* =========================================================
+   Semantic typography classes
+   ========================================================= */
+html, body { font-family: var(--font-sans); color: var(--fg1); background: var(--paper); }
+
+.h1, .nitra-h1 {
+  font-size: var(--t-4xl);
+  font-weight: var(--w-bold);
+  line-height: var(--lh-snug);
+  letter-spacing: -0.02em;
+  color: var(--fg1);
+}
+.h2, .nitra-h2 {
+  font-size: var(--t-2xl);
+  font-weight: var(--w-bold);
+  line-height: var(--lh-snug);
+  letter-spacing: -0.01em;
+  color: var(--fg1);
+}
+.h3, .nitra-h3 {
+  font-size: var(--t-lg);
+  font-weight: var(--w-bold);
+  line-height: var(--lh-snug);
+  color: var(--fg1);
+}
+.display, .nitra-display {
+  font-size: var(--t-5xl);
+  font-weight: var(--w-bold);
+  line-height: var(--lh-tight);
+  letter-spacing: -0.03em;
+  color: var(--fg-on-dark-1);
+}
+.body, .nitra-body {
+  font-size: var(--t-sm);
+  line-height: var(--lh-relaxed);
+  color: var(--fg2);
+}
+.muted, .nitra-muted { font-size: var(--t-sm); color: var(--fg3); }
+.eyebrow, .nitra-eyebrow {
+  font-size: var(--t-xs);
+  font-weight: var(--w-semibold);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--fg3);
+}
+
+/* Card helper */
+.nitra-card {
+  background: var(--paper);
+  border: 1px solid var(--border);
+  border-radius: var(--r-lg);
+  box-shadow: var(--shadow-card);
+}
