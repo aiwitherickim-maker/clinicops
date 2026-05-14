@@ -2,6 +2,7 @@
 // Calls Claude to produce a structured action plan for a patient message.
 
 import Anthropic from '@anthropic-ai/sdk';
+import { parseClaudeJson } from '@/lib/parseClaudeJson';
 import type { IntentResult } from './intentAgent';
 import type { SafetyResult } from './safetyAgent';
 import type { KnowledgeResult } from './knowledgeAgent';
@@ -136,7 +137,7 @@ export async function runActionPlannerAgent(
 
     let parsed: ActionPlannerResult;
     try {
-      parsed = JSON.parse(raw) as ActionPlannerResult;
+      parsed = parseClaudeJson<ActionPlannerResult>(raw);
     } catch (parseErr) {
       console.error('[actionPlannerAgent] FALLBACK REASON: JSON parse failed:', parseErr);
       console.error('[actionPlannerAgent] raw text:', raw);

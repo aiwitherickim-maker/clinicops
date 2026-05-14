@@ -5,6 +5,7 @@
 // approves, or provides a conservative fallback.
 
 import Anthropic from '@anthropic-ai/sdk';
+import { parseClaudeJson } from '@/lib/parseClaudeJson';
 import type { IntentResult } from './intentAgent';
 import type { SafetyResult } from './safetyAgent';
 import type { KnowledgeResult } from './knowledgeAgent';
@@ -232,7 +233,7 @@ export async function runQAAgent(
 
     let parsed: QAResult;
     try {
-      parsed = JSON.parse(raw) as QAResult;
+      parsed = parseClaudeJson<QAResult>(raw);
     } catch (parseErr) {
       console.error('[qaAgent] FALLBACK REASON: JSON parse failed:', parseErr);
       console.error('[qaAgent] raw text:', raw);

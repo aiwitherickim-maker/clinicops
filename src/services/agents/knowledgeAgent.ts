@@ -3,6 +3,7 @@
 // select the most relevant one for the incoming patient message.
 
 import Anthropic from '@anthropic-ai/sdk';
+import { parseClaudeJson } from '@/lib/parseClaudeJson';
 import { getKnowledgeSources } from '@/services/db/knowledgeService';
 import type { IntentResult } from './intentAgent';
 import type { SafetyResult } from './safetyAgent';
@@ -116,7 +117,7 @@ export async function runKnowledgeAgent(
 
     let parsed: KnowledgeResult;
     try {
-      parsed = JSON.parse(raw) as KnowledgeResult;
+      parsed = parseClaudeJson<KnowledgeResult>(raw);
     } catch (parseErr) {
       console.error('[knowledgeAgent] FALLBACK REASON: JSON parse failed');
       console.error('[knowledgeAgent] parse error:', parseErr);

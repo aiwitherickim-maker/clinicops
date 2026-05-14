@@ -4,6 +4,7 @@
 // patient-facing response. This agent generates the later staff-sendable follow-up.
 
 import Anthropic from '@anthropic-ai/sdk';
+import { parseClaudeJson } from '@/lib/parseClaudeJson';
 import type { IntentResult } from './intentAgent';
 import type { SafetyResult } from './safetyAgent';
 import type { KnowledgeResult } from './knowledgeAgent';
@@ -199,7 +200,7 @@ export async function runStaffFollowupDraftAgent(
 
     let parsed: StaffFollowupDraftResult;
     try {
-      parsed = JSON.parse(raw) as StaffFollowupDraftResult;
+      parsed = parseClaudeJson<StaffFollowupDraftResult>(raw);
     } catch (parseErr) {
       console.error('[staffFollowupDraftAgent] FALLBACK REASON: JSON parse failed:', parseErr);
       console.error('[staffFollowupDraftAgent] raw text:', raw);

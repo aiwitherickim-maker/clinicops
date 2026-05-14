@@ -4,6 +4,7 @@
 // it only generates wording for the assigned response mode.
 
 import Anthropic from '@anthropic-ai/sdk';
+import { parseClaudeJson } from '@/lib/parseClaudeJson';
 import type { IntentResult } from './intentAgent';
 import type { SafetyResult } from './safetyAgent';
 import type { KnowledgeResult } from './knowledgeAgent';
@@ -190,7 +191,7 @@ export async function runResponseAgent(
 
     let parsed: ResponseAgentResult;
     try {
-      parsed = JSON.parse(raw) as ResponseAgentResult;
+      parsed = parseClaudeJson<ResponseAgentResult>(raw);
     } catch (parseErr) {
       console.error('[responseAgent] FALLBACK REASON: JSON parse failed:', parseErr);
       console.error('[responseAgent] raw text:', raw);

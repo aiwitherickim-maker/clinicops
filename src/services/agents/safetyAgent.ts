@@ -2,6 +2,7 @@
 // Calls Claude to assess the safety risk of a patient message.
 
 import Anthropic from '@anthropic-ai/sdk';
+import { parseClaudeJson } from '@/lib/parseClaudeJson';
 import type { IntentResult } from './intentAgent';
 
 export interface SafetyResult {
@@ -88,7 +89,7 @@ export async function runSafetyAgent(
     const raw = response.content[0].type === 'text' ? response.content[0].text : '';
     console.log('[safetyAgent] raw response:', raw);
 
-    const parsed = JSON.parse(raw) as SafetyResult;
+    const parsed = parseClaudeJson<SafetyResult>(raw);
 
     // Enforce: clinical domain always requires human review
     if (intent.domain === 'Clinical' && !parsed.needs_human_review) {

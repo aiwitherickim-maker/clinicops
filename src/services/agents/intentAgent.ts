@@ -2,6 +2,7 @@
 // Calls Claude to classify the primary intent of a patient message.
 
 import Anthropic from '@anthropic-ai/sdk';
+import { parseClaudeJson } from '@/lib/parseClaudeJson';
 
 export interface IntentResult {
   primary_intent: string;
@@ -145,7 +146,7 @@ export async function runIntentAgent(messageText: string): Promise<IntentResult>
 
     let parsed: IntentResult;
     try {
-      parsed = JSON.parse(raw) as IntentResult;
+      parsed = parseClaudeJson<IntentResult>(raw);
     } catch (parseErr) {
       console.error('[intentAgent] FALLBACK REASON: JSON parse failed');
       console.error('[intentAgent] parse error:', parseErr);
