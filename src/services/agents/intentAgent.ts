@@ -40,15 +40,21 @@ const INTENT_FALLBACK: IntentResult = {
 };
 
 export async function runIntentAgent(messageText: string): Promise<IntentResult> {
+  console.log('[intentAgent] ── START ──────────────────────────────────');
+  console.log('[intentAgent] input message:', messageText);
+
   const apiKey = process.env.ANTHROPIC_API_KEY;
   if (!apiKey) {
-    console.warn('[intentAgent] ANTHROPIC_API_KEY not set — returning fallback');
-    return INTENT_FALLBACK;
+    console.error('[intentAgent] FALLBACK REASON: ANTHROPIC_API_KEY is not set in .env.local');
+    return { ...INTENT_FALLBACK, summary: '[FALLBACK: no API key]' };
   }
+  console.log('[intentAgent] API key present, length:', apiKey.length);
 
   const client = new Anthropic({ apiKey });
+  let raw = '';
 
   try {
+    console.log('[intentAgent] calling claude-sonnet-4-6...');
     const response = await client.messages.create({
       model: 'claude-sonnet-4-6',
       max_tokens: 256,
@@ -58,20 +64,31 @@ export async function runIntentAgent(messageText: string): Promise<IntentResult>
       ],
     });
 
-    const raw = response.content[0].type === 'text' ? response.content[0].text : '';
-    console.log('[intentAgent] raw response:', raw);
+    raw = response.content[0].type === 'text' ? response.content[0].text : '';
+    console.log('[intentAgent] raw Claude response:', raw);
 
-    const parsed = JSON.parse(raw) as IntentResult;
+    let parsed: IntentResult;
+    try {
+      parsed = JSON.parse(raw) as IntentResult;
+    } catch (parseErr) {
+      console.error('[intentAgent] FALLBACK REASON: JSON parse failed');
+      console.error('[intentAgent] parse error:', parseErr);
+      console.error('[intentAgent] raw text that failed to parse:', raw);
+      return { ...INTENT_FALLBACK, summary: '[FALLBACK: JSON parse error]' };
+    }
 
-    // Normalise confidence to 0–100 range if Claude returns 0–1
-    if (parsed.confidence <= 1.0) {
+    // Normalise confidence to 0–100 if Claude returns 0–1
+    if (parsed.confidence > 0 && parsed.confidence <= 1.0) {
       parsed.confidence = Math.round(parsed.confidence * 100);
     }
 
-    console.log('[intentAgent] parsed result:', parsed);
+    console.log('[intentAgent] final parsed result:', JSON.stringify(parsed));
     return parsed;
+
   } catch (err) {
-    console.error('[intentAgent] error — returning fallback:', err);
-    return INTENT_FALLBACK;
+    console.error('[intentAgent] FALLBACK REASON: Claude API call threw an error');
+    console.error('[intentAgent] error:', err);
+    console.error('[intentAgent] raw at time of error:', raw);
+    return { ...INTENT_FALLBACK, summary: '[FALLBACK: Claude API error]' };
   }
 }
