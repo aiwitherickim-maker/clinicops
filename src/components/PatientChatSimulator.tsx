@@ -229,8 +229,11 @@ function AgentWorkflowResult({ wf, visible, running }: { wf: WorkflowStep; visib
               num="3" iconKey="book" tone="sage"
               title="Knowledge Agent"
               kv={[
-                { k: 'Source', v: wf.knowledge.source },
-                { k: 'Rule',   v: wf.knowledge.rule },
+                { k: 'Source',    v: wf.knowledge.source },
+                { k: 'Guideline', v: wf.knowledge.rule },
+                ...(wf.knowledge.relevance
+                  ? [{ k: 'Relevance', v: wf.knowledge.relevance.charAt(0).toUpperCase() + wf.knowledge.relevance.slice(1) }]
+                  : []),
               ]}
             />
             <AgentStep

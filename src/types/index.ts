@@ -81,7 +81,7 @@ export interface ChatMessage {
 export interface WorkflowStep {
   intent: { intent: string; domain: string; confidence: number };
   safety: { risk: string; review: string; routeTo: string };
-  knowledge: { source: string; rule: string };
+  knowledge: { source: string; rule: string; relevance?: string };
   planner: string[];
   validation: { status: string; issue: string };
 }

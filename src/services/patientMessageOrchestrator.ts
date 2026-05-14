@@ -1,12 +1,13 @@
 // patientMessageOrchestrator.ts — server-side only.
 // Orchestrates the full patient message workflow:
 //   patient message → Intent Agent (Claude) → Safety Agent (Claude)
-//   → mock Knowledge/Planner/Drafting/Validation agents
+//   → Knowledge Agent (Claude) → mock Planner/Drafting/Validation agents
 //   → persist to Supabase
 //   → return WorkflowStep for UI display
 
 import { runIntentAgent, type IntentResult } from './agents/intentAgent';
 import { runSafetyAgent, type SafetyResult } from './agents/safetyAgent';
+import { runKnowledgeAgent, type KnowledgeResult } from './agents/knowledgeAgent';
 import { createMessage, updateMessageStatus } from './db/messageService';
 import { saveAgentAnalysis } from './db/analysisService';
 import { createDraft } from './db/draftService';
@@ -15,31 +16,6 @@ import type { WorkflowStep } from '@/types';
 import type { MessageStatus, TaskPriority } from '@/types/database';
 
 // ─── mock agents ──────────────────────────────────────────────────────────────
-
-function mockKnowledgeAgent(intent: IntentResult, safety: SafetyResult) {
-  if (safety.risk_level === 'high') {
-    return {
-      source: 'Post-procedure symptom escalation policy',
-      rule: 'Do not diagnose or reassure; escalate to clinical team immediately.',
-    };
-  }
-  if (intent.domain === 'Billing') {
-    return {
-      source: 'Billing FAQ & insurance policy',
-      rule: 'Provide general cost info; escalate specific estimates to billing staff.',
-    };
-  }
-  if (intent.domain === 'Scheduling') {
-    return {
-      source: 'Scheduling policy',
-      rule: 'Offer available slots if known; otherwise route to front desk.',
-    };
-  }
-  return {
-    source: 'Clinic general policy library',
-    rule: 'Standard routing — respond with clinic info or route to appropriate staff.',
-  };
-}
 
 function mockActionPlanner(safety: SafetyResult): string[] {
   const steps: string[] = [];
@@ -118,8 +94,11 @@ export async function runPatientMessageWorkflow(
   const safety = await runSafetyAgent(messageText, intent);
   console.log('[orchestrator] safety:', safety);
 
-  // ── Step 3–5: Mock agents ─────────────────────────────────────────────────
-  const knowledge   = mockKnowledgeAgent(intent, safety);
+  // ── Step 3: Knowledge Agent (real Claude) ────────────────────────────────
+  const knowledge = await runKnowledgeAgent(messageText, intent, safety, clinicId);
+  console.log('[orchestrator] knowledge:', knowledge);
+
+  // ── Step 4–5: Mock agents ─────────────────────────────────────────────────
   const plannerSteps = mockActionPlanner(safety);
   const draftText   = mockDraftingAgent(intent, safety);
   const validation  = mockValidationAgent(safety);
@@ -143,8 +122,9 @@ export async function runPatientMessageWorkflow(
       routeTo: toRouteLabel(safety.route_to),
     },
     knowledge: {
-      source: knowledge.source,
-      rule:   knowledge.rule,
+      source:    knowledge.matched_source_title   ?? 'No matching source found',
+      rule:      knowledge.allowed_content_summary,
+      relevance: knowledge.relevance,
     },
     planner:    plannerSteps,
     validation: {
@@ -177,7 +157,7 @@ export async function runPatientMessageWorkflow(
       message_id: message.id,
       intent:     intent as unknown as Record<string, unknown>,
       safety:     safety as unknown as Record<string, unknown>,
-      knowledge:  knowledge as Record<string, unknown>,
+      knowledge:  knowledge as unknown as Record<string, unknown>,
       actions:    { steps: plannerSteps },
       draft:      { text: draftText },
       validation: validation as Record<string, unknown>,
