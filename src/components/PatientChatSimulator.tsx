@@ -239,7 +239,11 @@ function AgentWorkflowResult({ wf, visible, running }: { wf: WorkflowStep; visib
             <AgentStep
               num="4" iconKey="route" tone="amber"
               title="Action Planner"
-              kv={wf.planner.map((p, i) => ({ k: `Step ${i + 1}`, v: p }))}
+              right={<PlannerStatusBadge status={wf.planner.status} />}
+              kv={wf.planner.actions.map((a, i) => ({
+                k: `Action ${i + 1}`,
+                v: `${a.title} → ${a.role} (${a.priority})`,
+              }))}
             />
             <AgentStep
               num="5" iconKey="checkCircle" tone="green"
@@ -255,6 +259,14 @@ function AgentWorkflowResult({ wf, visible, running }: { wf: WorkflowStep; visib
       </div>
     </div>
   );
+}
+
+function PlannerStatusBadge({ status }: { status: string }) {
+  const tone =
+    status.toLowerCase().includes('clinician') ? 'red' :
+    status.toLowerCase().includes('billing')   ? 'amber' :
+    status.toLowerCase().includes('resolved')  ? 'green' : 'amber';
+  return <Badge tone={tone as 'red' | 'amber' | 'green'} dot>{status}</Badge>;
 }
 
 interface KVRow { k: string; v: string; danger?: boolean; warn?: boolean; }

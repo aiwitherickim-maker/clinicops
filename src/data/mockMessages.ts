@@ -101,7 +101,13 @@ export const SIM_CONVERSATIONS: SimConversation[] = [
       intent:    { intent: 'Post-procedure symptom', domain: 'Clinical', confidence: 92 },
       safety:    { risk: 'High', review: 'Required', routeTo: 'Clinician' },
       knowledge: { source: 'Post-injection symptom escalation policy', rule: 'Do not diagnose or reassure; escalate to clinical team' },
-      planner:   ['Create urgent clinician review task', 'Draft safe patient response'],
+      planner:   {
+        status: 'needs_clinician_review',
+        actions: [
+          { title: 'Create urgent clinician review task', role: 'Clinician', priority: 'urgent', reason: 'Post-procedure symptoms require immediate clinical evaluation' },
+          { title: 'Queue draft response for approval', role: 'Clinician', priority: 'medium', reason: 'AI draft must be approved before sending to patient' },
+        ],
+      },
       validation:{ status: 'Approved for review queue', issue: 'No autonomous medical advice detected' },
     },
   },

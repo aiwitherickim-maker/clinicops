@@ -1,13 +1,15 @@
 // patientMessageOrchestrator.ts — server-side only.
 // Orchestrates the full patient message workflow:
 //   patient message → Intent Agent (Claude) → Safety Agent (Claude)
-//   → Knowledge Agent (Claude) → mock Planner/Drafting/Validation agents
+//   → Knowledge Agent (Claude) → Action Planner Agent (Claude)
+//   → mock Drafting/Validation agents
 //   → persist to Supabase
 //   → return WorkflowStep for UI display
 
 import { runIntentAgent, type IntentResult } from './agents/intentAgent';
 import { runSafetyAgent, type SafetyResult } from './agents/safetyAgent';
 import { runKnowledgeAgent, type KnowledgeResult } from './agents/knowledgeAgent';
+import { runActionPlannerAgent, type ActionPlannerResult } from './agents/actionPlannerAgent';
 import { createMessage, updateMessageStatus } from './db/messageService';
 import { saveAgentAnalysis } from './db/analysisService';
 import { createDraft } from './db/draftService';
@@ -16,17 +18,6 @@ import type { WorkflowStep } from '@/types';
 import type { MessageStatus, TaskPriority } from '@/types/database';
 
 // ─── mock agents ──────────────────────────────────────────────────────────────
-
-function mockActionPlanner(safety: SafetyResult): string[] {
-  const steps: string[] = [];
-  if (safety.needs_human_review) {
-    const role = safety.route_to.replace('_', ' ');
-    steps.push(`Create ${safety.risk_level === 'high' ? 'urgent' : 'standard'} ${role} review task`);
-  }
-  steps.push('Draft safe patient response');
-  steps.push('Save workflow result and audit trail');
-  return steps;
-}
 
 function mockDraftingAgent(intent: IntentResult, safety: SafetyResult): string {
   if (safety.risk_level === 'high') {
@@ -71,6 +62,17 @@ function toRouteLabel(routeTo: string): string {
   }
 }
 
+function toWorkflowStatusLabel(status: string): string {
+  switch (status) {
+    case 'needs_clinician_review':   return 'Needs Clinician Review';
+    case 'needs_billing_review':     return 'Needs Billing Review';
+    case 'needs_front_desk_review':  return 'Needs Front Desk Review';
+    case 'ready_for_staff_approval': return 'Ready for Staff Approval';
+    case 'resolved_by_ai_draft':     return 'Resolved by AI Draft';
+    default:                         return status;
+  }
+}
+
 // ─── orchestrator ─────────────────────────────────────────────────────────────
 
 export interface OrchestratorResult {
@@ -98,10 +100,13 @@ export async function runPatientMessageWorkflow(
   const knowledge = await runKnowledgeAgent(messageText, intent, safety, clinicId);
   console.log('[orchestrator] knowledge:', knowledge);
 
-  // ── Step 4–5: Mock agents ─────────────────────────────────────────────────
-  const plannerSteps = mockActionPlanner(safety);
-  const draftText   = mockDraftingAgent(intent, safety);
-  const validation  = mockValidationAgent(safety);
+  // ── Step 4: Action Planner Agent (real Claude) ───────────────────────────
+  const planner = await runActionPlannerAgent(messageText, intent, safety, knowledge);
+  console.log('[orchestrator] planner:', planner);
+
+  // ── Step 5: Mock drafting + validation agents ─────────────────────────────
+  const draftText  = mockDraftingAgent(intent, safety);
+  const validation = mockValidationAgent(safety);
 
   console.log('[orchestrator] mock agents complete');
 
@@ -124,7 +129,15 @@ export async function runPatientMessageWorkflow(
       rule:      knowledge.allowed_content_summary,
       relevance: knowledge.relevance,
     },
-    planner:    plannerSteps,
+    planner: {
+      status: toWorkflowStatusLabel(planner.workflow_status),
+      actions: planner.recommended_actions.map(a => ({
+        title:    a.title,
+        role:     toRouteLabel(a.assignee_role),
+        priority: a.priority.charAt(0).toUpperCase() + a.priority.slice(1),
+        reason:   a.reason,
+      })),
+    },
     validation: {
       status: validation.status,
       issue:  validation.issue,
@@ -156,7 +169,7 @@ export async function runPatientMessageWorkflow(
       intent:     intent as unknown as Record<string, unknown>,
       safety:     safety as unknown as Record<string, unknown>,
       knowledge:  knowledge as unknown as Record<string, unknown>,
-      actions:    { steps: plannerSteps },
+      actions:    planner as unknown as Record<string, unknown>,
       draft:      { text: draftText },
       validation: validation as Record<string, unknown>,
       final_status: 'approved_for_queue',
@@ -180,18 +193,32 @@ export async function runPatientMessageWorkflow(
     });
     console.log('[orchestrator] draft saved:', draft?.id);
 
-    // 5. Always create a task — every message needs staff follow-up.
-    //    needs_human_review drives priority, not whether a task exists.
-    const task = await createTaskFromMessage(
-      clinicId,
-      message.id,
-      `Review ${intent.domain} message from ${patientName}`,
-      {
-        assignedRole: toRouteLabel(safety.route_to),
-        priority:     toTaskPriority(safety),
-      },
-    );
-    console.log('[orchestrator] task created:', task?.id, '| priority:', task?.priority);
+    // 5. Create tasks for every create_task action in the planner result
+    const taskActions = planner.recommended_actions.filter(a => a.type === 'create_task');
+    if (!taskActions.length) {
+      // Fallback: ensure at least one task is always created
+      taskActions.push({
+        type: 'create_task',
+        title: `Review ${intent.domain} message from ${patientName}`,
+        description: '',
+        assignee_role: safety.route_to as ActionPlannerResult['recommended_actions'][0]['assignee_role'],
+        priority: toTaskPriority(safety),
+        requires_approval: safety.needs_human_review,
+        reason: 'Fallback task',
+      });
+    }
+    for (const action of taskActions) {
+      const task = await createTaskFromMessage(
+        clinicId,
+        message.id,
+        action.title,
+        {
+          assignedRole: toRouteLabel(action.assignee_role),
+          priority:     action.priority as TaskPriority,
+        },
+      );
+      console.log('[orchestrator] task created:', task?.id, '| priority:', task?.priority);
+    }
 
   } catch (err) {
     console.error('[orchestrator] Supabase persist error:', err);

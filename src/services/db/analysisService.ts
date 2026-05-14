@@ -9,7 +9,7 @@ const MOCK_ANALYSIS: DbAgentAnalysis = {
   intent:    SIM_CONVERSATIONS[0].workflow.intent    as Record<string, unknown>,
   safety:    SIM_CONVERSATIONS[0].workflow.safety    as Record<string, unknown>,
   knowledge: SIM_CONVERSATIONS[0].workflow.knowledge as Record<string, unknown>,
-  actions:   { steps: SIM_CONVERSATIONS[0].workflow.planner },
+  actions:   SIM_CONVERSATIONS[0].workflow.planner as Record<string, unknown>,
   draft:     { text: 'Draft text here' },
   validation:SIM_CONVERSATIONS[0].workflow.validation as Record<string, unknown>,
   final_status: 'approved_for_queue',

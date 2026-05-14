@@ -78,11 +78,18 @@ export interface ChatMessage {
   draft?: boolean;
 }
 
+export interface PlannerAction {
+  title: string;
+  role: string;
+  priority: string;
+  reason: string;
+}
+
 export interface WorkflowStep {
   intent: { intent: string; domain: string; confidence: number };
   safety: { risk: string; review: string; routeTo: string };
   knowledge: { source: string; rule: string; relevance?: string };
-  planner: string[];
+  planner: { status: string; actions: PlannerAction[] };
   validation: { status: string; issue: string };
 }
 
