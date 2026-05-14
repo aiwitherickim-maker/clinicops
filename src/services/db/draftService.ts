@@ -52,8 +52,13 @@ export async function getStaffFollowupDraft(messageId: string): Promise<DbDraftR
     .limit(1)
     .single();
 
-  if (error && error.code !== 'PGRST116') {
-    console.error('[draftService] getStaffFollowupDraft:', error.message);
+  if (error) {
+    if (error.code !== 'PGRST116') {
+      // Column may not exist yet (migration pending) — fall back to any draft for this message
+      console.warn('[draftService] getStaffFollowupDraft fallback:', error.message);
+      return getDraftForMessage(messageId);
+    }
+    return null;
   }
   return data ?? null;
 }
