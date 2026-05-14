@@ -4,10 +4,8 @@ import React, { useState, useRef, useEffect } from 'react';
 import { CLINIC } from '@/data/mockClinic';
 import { SIM_CONVERSATIONS } from '@/data/mockMessages';
 import type { ChatMessage, WorkflowStep, ResponseType } from '@/types';
-import { Button, Badge, IconTile, ConfidenceMini, ReviewDisclaimer, Dot } from './Primitives';
-import {
-  IconRefresh, IconArrowUp, IconSparkles, IconSend, IconShieldCheck, IconLayers,
-} from './Icons';
+import { Badge, IconTile, ConfidenceMini, Dot } from './Primitives';
+import { IconSend, IconLayers } from './Icons';
 import { analyzePatientMessageAndPersist } from '@/services/agentService';
 
 export function PatientChatSimulator() {
@@ -26,13 +24,7 @@ export function PatientChatSimulator() {
 
   const runWorkflow = async () => {
     const userText = input.trim();
-    if (!userText) {
-      // Re-animate the panel with mock data if no input
-      setRunning(true);
-      setShowWorkflow(false);
-      setTimeout(() => { setShowWorkflow(true); setRunning(false); }, 700);
-      return;
-    }
+    if (!userText) return;
 
     const time = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
     setMessages((m) => [...m, { who: 'patient', text: userText, t: time }]);
@@ -67,14 +59,6 @@ export function PatientChatSimulator() {
     }
   };
 
-  const resetConversation = () => {
-    setMessages(seed.initialMessages);
-    setWorkflow(seed.workflow);
-    setShowWorkflow(true);
-    setInput('');
-    setRunning(false);
-  };
-
   return (
     <div className="screen-enter" style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
       <div className="page-header">
@@ -82,13 +66,7 @@ export function PatientChatSimulator() {
           <h1>Patient Chat Simulator</h1>
           <p className="lede">Preview the white-labeled patient assistant and inspect how each agent decides what to draft, route, and escalate.</p>
         </div>
-        <div className="actions">
-          <Button variant="secondary" size="sm" onClick={resetConversation}><IconRefresh size={14} /> Reset conversation</Button>
-          <Button variant="secondary" size="sm"><IconArrowUp size={14} /> Open patient portal</Button>
-        </div>
       </div>
-
-      <ReviewDisclaimer />
 
       <div className="split-2col">
         {/* Phone mock */}
@@ -120,11 +98,6 @@ export function PatientChatSimulator() {
               )}
             </div>
 
-            <div className="ph-disclaimer">
-              <IconShieldCheck size={13} />
-              ArborCare cannot give medical advice. Urgent? Call (734) 555-0142.
-            </div>
-
             <div className="ph-composer">
               <input
                 placeholder="Patient name (optional)"
@@ -141,9 +114,6 @@ export function PatientChatSimulator() {
                 />
                 <button className="send" onClick={runWorkflow} title="Send"><IconSend size={15} /></button>
               </div>
-              <Button variant="forest" size="sm" onClick={runWorkflow} style={{ alignSelf: 'stretch', justifyContent: 'center' }}>
-                <IconSparkles size={14} /> Run Agent Workflow
-              </Button>
             </div>
           </div>
         </div>
@@ -157,14 +127,24 @@ export function PatientChatSimulator() {
   );
 }
 
+function shortenBadgeText(text: string): string {
+  if (/billing follow-?up/i.test(text)) return 'Billing follow-up';
+  if (/front desk follow-?up/i.test(text)) return 'Front desk follow-up';
+  if (/clinician alerted/i.test(text)) return 'Clinician alerted';
+  if (/clinician follow-?up/i.test(text)) return 'Clinician follow-up';
+  if (/approved.*source|source.*answer/i.test(text)) return 'Approved source';
+  if (/safe acknowledgment/i.test(text)) return 'Staff follow-up';
+  return text;
+}
+
 function responseBadge(rt: ResponseType | undefined): { tone: 'green' | 'sage' | 'red' | 'amber'; text: string } {
   switch (rt) {
-    case 'safe_acknowledgment':  return { tone: 'green', text: 'Safe acknowledgment sent · staff follow-up created' };
-    case 'source_answered':      return { tone: 'sage',  text: 'Answered from approved clinic source' };
-    case 'preapproved_safety':   return { tone: 'red',   text: 'Pre-approved safety response sent · clinician follow-up required' };
-    case 'urgent_safety':        return { tone: 'red',   text: 'Urgent safety response sent · clinician alerted' };
+    case 'safe_acknowledgment':  return { tone: 'green', text: 'Staff follow-up' };
+    case 'source_answered':      return { tone: 'sage',  text: 'Approved source' };
+    case 'preapproved_safety':   return { tone: 'red',   text: 'Clinician follow-up' };
+    case 'urgent_safety':        return { tone: 'red',   text: 'Clinician alerted' };
     case 'draft_review':
-    default:                     return { tone: 'amber', text: 'Draft only — clinician review required' };
+    default:                     return { tone: 'amber', text: 'Staff review required' };
   }
 }
 
@@ -178,7 +158,7 @@ function ChatBubble({ m }: { m: ChatMessage }) {
     );
   }
   const badge = responseBadge(m.responseType);
-  const displayText = m.badgeText ?? badge.text;
+  const displayText = shortenBadgeText(m.badgeText ?? badge.text);
   return (
     <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start' }}>
       <div className="assistant-label">
@@ -190,6 +170,58 @@ function ChatBubble({ m }: { m: ChatMessage }) {
       <div className="bubble-meta">{m.t}</div>
     </div>
   );
+}
+
+function WorkflowSummaryBadges({ wf }: { wf: WorkflowStep }) {
+  const { canAutoSend, requiresHumanReview, qaStatus } = wf.validation;
+  const routeTo = wf.safety.routeTo;
+  const risk = wf.safety.risk.toLowerCase();
+  const qa = qaStatus.toLowerCase();
+
+  if (qa.includes('blocked')) {
+    return (
+      <>
+        <Badge tone="red" dot>Blocked</Badge>
+        <Badge tone="red" dot>Staff review required</Badge>
+      </>
+    );
+  }
+
+  return (
+    <>
+      {canAutoSend
+        ? <Badge tone="green" dot>Auto-sent</Badge>
+        : <Badge tone="amber" dot>Staff review required</Badge>
+      }
+      {canAutoSend && routeTo === 'Clinician' && <Badge tone="red" dot>Clinician alerted</Badge>}
+      {canAutoSend && routeTo === 'Billing' && <Badge tone="amber" dot>Billing follow-up</Badge>}
+      {canAutoSend && (routeTo === 'Front Desk' || routeTo === 'Staff') && <Badge tone="sage" dot>Front desk follow-up</Badge>}
+      {!canAutoSend && requiresHumanReview && routeTo === 'Clinician' && <Badge tone="red" dot>Clinician follow-up</Badge>}
+      {risk === 'high' && <Badge tone="red">High risk</Badge>}
+      {risk === 'medium' && <Badge tone="amber">Medium risk</Badge>}
+      <Badge tone="sage">Audit ID · wf-AAR-0413</Badge>
+    </>
+  );
+}
+
+function SafetyAgentBadge({ wf }: { wf: WorkflowStep }) {
+  const risk = wf.safety.risk.toLowerCase();
+  const routeTo = wf.safety.routeTo;
+  const canAutoSend = wf.validation.canAutoSend;
+  const qa = wf.validation.qaStatus.toLowerCase();
+
+  if (qa.includes('blocked')) return <Badge tone="red" dot>Blocked</Badge>;
+  if (risk === 'high') {
+    return canAutoSend
+      ? <Badge tone="red" dot>Safety response only</Badge>
+      : <Badge tone="red" dot>Clinician follow-up</Badge>;
+  }
+  if (risk === 'medium') {
+    return routeTo === 'Clinician'
+      ? <Badge tone="amber" dot>Clinician follow-up</Badge>
+      : <Badge tone="amber" dot>Follow-up required</Badge>;
+  }
+  return <Badge tone="green" dot>Auto-send allowed</Badge>;
 }
 
 function AgentWorkflowResult({ wf, visible, running }: { wf: WorkflowStep; visible: boolean; running: boolean }) {
@@ -206,10 +238,7 @@ function AgentWorkflowResult({ wf, visible, running }: { wf: WorkflowStep; visib
       </div>
       <div className="card-body" style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
-          <Badge tone="red" dot>High Risk</Badge>
-          <Badge tone="red" dot>Clinician Review Required</Badge>
-          <Badge tone="amber" dot>Draft Only</Badge>
-          <Badge tone="sage">Audit ID · wf-AAR-0413</Badge>
+          <WorkflowSummaryBadges wf={wf} />
         </div>
 
         {(!visible || running) ? (
@@ -234,10 +263,10 @@ function AgentWorkflowResult({ wf, visible, running }: { wf: WorkflowStep; visib
             <AgentStep
               num="2" iconKey="shield" tone="red"
               title="Safety Agent"
-              right={<Badge tone="red" dot>Blocked auto-send</Badge>}
+              right={<SafetyAgentBadge wf={wf} />}
               kv={[
-                { k: 'Risk level',   v: wf.safety.risk,   danger: true },
-                { k: 'Human review', v: wf.safety.review, warn: true },
+                { k: 'Risk level',   v: wf.safety.risk,   danger: wf.safety.risk.toLowerCase() === 'high' },
+                { k: 'Human review', v: wf.safety.review, warn: wf.safety.review === 'Required' },
                 { k: 'Route to',     v: wf.safety.routeTo },
               ]}
             />
