@@ -115,9 +115,7 @@ export async function runPatientMessageWorkflow(
         : intent.confidence,
     },
     safety: {
-      risk:    intent.domain === 'Clinical' || safety.risk_level === 'high'
-        ? 'High'
-        : safety.risk_level.charAt(0).toUpperCase() + safety.risk_level.slice(1),
+      risk:    safety.risk_level.charAt(0).toUpperCase() + safety.risk_level.slice(1),
       review:  safety.needs_human_review ? 'Required' : 'Not required',
       routeTo: toRouteLabel(safety.route_to),
     },
