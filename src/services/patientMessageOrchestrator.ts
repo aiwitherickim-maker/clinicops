@@ -14,7 +14,7 @@ import { createMessage, updateMessageStatus } from './db/messageService';
 import { saveAgentAnalysis } from './db/analysisService';
 import { createDraft } from './db/draftService';
 import { createTaskFromMessage } from './db/taskDbService';
-import type { WorkflowStep } from '@/types';
+import type { WorkflowStep, ResponseType } from '@/types';
 import type { MessageStatus, TaskPriority } from '@/types/database';
 
 // ─── mock agents ──────────────────────────────────────────────────────────────
@@ -62,6 +62,20 @@ function toRouteLabel(routeTo: string): string {
   }
 }
 
+function deriveResponseType(planner: ActionPlannerResult, safety: SafetyResult): ResponseType {
+  const replyAction = planner.recommended_actions.find(a =>
+    a.type === 'send_safe_acknowledgment' ||
+    a.type === 'send_preapproved_safety_response' ||
+    a.type === 'draft_patient_reply',
+  );
+  if (!replyAction) return 'no_reply';
+  if (replyAction.type === 'send_safe_acknowledgment') return 'safe_acknowledgment';
+  if (replyAction.type === 'send_preapproved_safety_response') {
+    return safety.risk_level === 'high' ? 'urgent_safety' : 'preapproved_safety';
+  }
+  return 'draft_review';
+}
+
 function toWorkflowStatusLabel(status: string): string {
   switch (status) {
     case 'needs_clinician_review':   return 'Needs Clinician Review';
@@ -78,6 +92,7 @@ function toWorkflowStatusLabel(status: string): string {
 export interface OrchestratorResult {
   workflow: WorkflowStep;
   draftText: string;
+  responseType: ResponseType;
   messageId: string | null;
 }
 
@@ -226,5 +241,8 @@ export async function runPatientMessageWorkflow(
     // Don't throw — still return the workflow result so the UI works
   }
 
-  return { workflow, draftText, messageId };
+  const responseType = deriveResponseType(planner, safety);
+  console.log('[orchestrator] responseType:', responseType);
+
+  return { workflow, draftText, responseType, messageId };
 }

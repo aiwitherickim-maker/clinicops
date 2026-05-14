@@ -71,11 +71,20 @@ export interface InboxMessage {
   confidence: number;
 }
 
+export type ResponseType =
+  | 'safe_acknowledgment'          // send_safe_acknowledgment: low-risk auto-sent
+  | 'source_answered'              // knowledge agent matched an approved source
+  | 'preapproved_safety'           // send_preapproved_safety_response: clinical-risk template
+  | 'urgent_safety'                // emergency-level clinical escalation
+  | 'draft_review'                 // draft_patient_reply: human must approve before sending
+  | 'no_reply';                    // no patient-facing response
+
 export interface ChatMessage {
   who: 'patient' | 'assistant';
   text: string;
   t: string;
   draft?: boolean;
+  responseType?: ResponseType;
 }
 
 export interface PlannerAction {

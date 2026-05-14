@@ -1,10 +1,11 @@
-import type { InboxMessage, CommandAction, WorkflowStep, ChatMessage } from '@/types';
+import type { InboxMessage, CommandAction, WorkflowStep, ChatMessage, ResponseType } from '@/types';
 
 // ─── Patient message analysis ─────────────────────────────────────────────────
 
 export interface AnalyzeResult {
   workflow: WorkflowStep;
   draftText: string;
+  responseType: ResponseType;
   messageId: string | null;
 }
 

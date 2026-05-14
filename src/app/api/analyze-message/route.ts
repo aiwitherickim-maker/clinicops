@@ -31,9 +31,10 @@ export async function POST(req: NextRequest) {
     console.log('[api/analyze-message] workflow complete | messageId:', result.messageId);
 
     return NextResponse.json({
-      workflow:  result.workflow,
-      draftText: result.draftText,
-      messageId: result.messageId,
+      workflow:      result.workflow,
+      draftText:     result.draftText,
+      responseType:  result.responseType,
+      messageId:     result.messageId,
     });
 
   } catch (err) {

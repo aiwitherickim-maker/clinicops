@@ -3,7 +3,7 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { CLINIC } from '@/data/mockClinic';
 import { SIM_CONVERSATIONS } from '@/data/mockMessages';
-import type { ChatMessage, WorkflowStep } from '@/types';
+import type { ChatMessage, WorkflowStep, ResponseType } from '@/types';
 import { Button, Badge, IconTile, ConfidenceMini, ReviewDisclaimer, Dot } from './Primitives';
 import {
   IconRefresh, IconArrowUp, IconSparkles, IconSend, IconShieldCheck, IconLayers,
@@ -49,6 +49,7 @@ export function PatientChatSimulator() {
         text: result.draftText,
         t: time,
         draft: true,
+        responseType: result.responseType,
       }]);
     } catch (err) {
       console.error('[PatientChatSimulator] workflow error:', err);
@@ -57,6 +58,7 @@ export function PatientChatSimulator() {
         text: "I've received your message and routed it to our team. A staff member will respond shortly. For urgent concerns, please call (734) 555-0142.",
         t: time,
         draft: true,
+        responseType: 'draft_review' as ResponseType,
       }]);
     } finally {
       setShowWorkflow(true);
@@ -154,6 +156,17 @@ export function PatientChatSimulator() {
   );
 }
 
+function responseBadge(rt: ResponseType | undefined): { tone: 'green' | 'sage' | 'red' | 'amber'; text: string } {
+  switch (rt) {
+    case 'safe_acknowledgment':  return { tone: 'green', text: 'Safe acknowledgment sent · staff follow-up created' };
+    case 'source_answered':      return { tone: 'sage',  text: 'Answered from approved clinic source' };
+    case 'preapproved_safety':   return { tone: 'red',   text: 'Pre-approved safety response sent · clinician follow-up required' };
+    case 'urgent_safety':        return { tone: 'red',   text: 'Urgent safety response sent · clinician alerted' };
+    case 'draft_review':
+    default:                     return { tone: 'amber', text: 'Draft only — clinician review required' };
+  }
+}
+
 function ChatBubble({ m }: { m: ChatMessage }) {
   if (m.who === 'patient') {
     return (
@@ -163,12 +176,13 @@ function ChatBubble({ m }: { m: ChatMessage }) {
       </div>
     );
   }
+  const badge = responseBadge(m.responseType);
   return (
     <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start' }}>
       <div className="assistant-label">
         <div className="av">A</div>
         <div className="nm">ArborCare</div>
-        {m.draft && <Badge tone="amber" dot>Draft only — clinician review required</Badge>}
+        {m.draft && <Badge tone={badge.tone} dot>{badge.text}</Badge>}
       </div>
       <div className={`bubble assistant${m.draft ? ' draft' : ''}`}>{m.text}</div>
       <div className="bubble-meta">{m.t}</div>

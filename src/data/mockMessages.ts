@@ -95,7 +95,7 @@ export const SIM_CONVERSATIONS: SimConversation[] = [
     label: 'Post-procedure symptom',
     initialMessages: [
       { who: 'patient', text: 'Hi — my eye has been hurting since the injection yesterday. Should I wait?', t: '7:42 AM' },
-      { who: 'assistant', text: "I'm sorry you're experiencing this. I'm going to flag this for the clinical team now. If you have severe pain, sudden vision changes, or rapidly worsening symptoms, please contact the clinic immediately or seek urgent care.", t: '7:42 AM', draft: true },
+      { who: 'assistant', text: "I'm sorry you're experiencing this. I'm going to flag this for the clinical team now. If you have severe pain, sudden vision changes, or rapidly worsening symptoms, please contact the clinic immediately or seek urgent care.", t: '7:42 AM', draft: true, responseType: 'urgent_safety' as const },
     ],
     workflow: {
       intent:    { intent: 'Post-procedure symptom', domain: 'Clinical', confidence: 92 },
@@ -104,8 +104,8 @@ export const SIM_CONVERSATIONS: SimConversation[] = [
       planner:   {
         status: 'needs_clinician_review',
         actions: [
-          { title: 'Create urgent clinician review task', role: 'Clinician', priority: 'urgent', reason: 'Post-procedure symptoms require immediate clinical evaluation', requires_approval: true },
-          { title: 'Draft safety escalation response', role: 'Clinician', priority: 'urgent', reason: 'AI draft must be approved by clinician before sending to patient', requires_approval: true },
+          { title: 'Escalate to clinician immediately', role: 'Clinician', priority: 'urgent', reason: 'Post-procedure symptoms require immediate clinical evaluation', requires_approval: false },
+          { title: 'Send pre-approved safety escalation response', role: 'Clinician', priority: 'urgent', reason: 'Pre-approved safety template auto-sent; clinician must follow up directly', requires_approval: false },
         ],
       },
       validation:{ status: 'Approved for review queue', issue: 'No autonomous medical advice detected' },
