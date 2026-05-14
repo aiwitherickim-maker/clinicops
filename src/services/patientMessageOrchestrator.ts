@@ -10,23 +10,13 @@ import { runSafetyAgent, type SafetyResult } from './agents/safetyAgent';
 import { runKnowledgeAgent, type KnowledgeResult } from './agents/knowledgeAgent';
 import { runActionPlannerAgent, type ActionPlannerResult } from './agents/actionPlannerAgent';
 import { runResponseAgent, type ResponseMode } from './agents/responseAgent';
+import { runQAAgent } from './agents/qaAgent';
 import { createMessage, updateMessageStatus } from './db/messageService';
 import { saveAgentAnalysis } from './db/analysisService';
 import { createDraft } from './db/draftService';
 import { createTaskFromMessage } from './db/taskDbService';
 import type { WorkflowStep, ResponseType } from '@/types';
 import type { MessageStatus, TaskPriority } from '@/types/database';
-
-// ─── mock validation agent ────────────────────────────────────────────────────
-
-function mockValidationAgent(safety: SafetyResult) {
-  return {
-    status: safety.needs_human_review
-      ? 'Approved for review queue'
-      : 'Approved for automated response',
-    issue: 'No autonomous medical advice detected',
-  };
-}
 
 // ─── helpers ──────────────────────────────────────────────────────────────────
 
@@ -130,8 +120,17 @@ export async function runPatientMessageWorkflow(
   );
   console.log('[orchestrator] response agent result:', responseResult);
 
-  // ── Step 6: Mock validation agent ────────────────────────────────────────
-  const validation = mockValidationAgent(safety);
+  // ── Step 6: QA Agent (real Claude) ───────────────────────────────────────
+  const qaResult = await runQAAgent(
+    messageText, intent, safety, knowledge, planner, responseResult, responseMode,
+  );
+  console.log('[orchestrator] qaResult:', qaResult);
+
+  // Select final response text: approved text if QA passed, safe fallback otherwise
+  const finalResponseText = qaResult.approved_response_text ?? qaResult.safe_fallback_response;
+  const finalBadgeText    = qaResult.badge_text;
+  console.log('[orchestrator] final response selected:', qaResult.qa_status === 'approved' ? 'approved_response_text' : 'safe_fallback_response');
+  console.log('[orchestrator] final response text:', finalResponseText.slice(0, 80));
 
   // ── Build WorkflowStep for UI ─────────────────────────────────────────────
   const workflow: WorkflowStep = {
@@ -163,8 +162,11 @@ export async function runPatientMessageWorkflow(
       })),
     },
     validation: {
-      status: validation.status,
-      issue:  validation.issue,
+      qaStatus:           qaResult.qa_status.charAt(0).toUpperCase() + qaResult.qa_status.slice(1).replace('_', ' '),
+      canAutoSend:        qaResult.can_auto_send,
+      requiresHumanReview: qaResult.requires_human_review,
+      reasonSummary:      qaResult.reason_summary,
+      issues:             qaResult.issues,
     },
   };
 
@@ -194,8 +196,8 @@ export async function runPatientMessageWorkflow(
       safety:     safety as unknown as Record<string, unknown>,
       knowledge:  knowledge as unknown as Record<string, unknown>,
       actions:    planner as unknown as Record<string, unknown>,
-      draft:      { text: responseResult.response_text, mode: responseMode, badge: responseResult.badge_text },
-      validation: validation as Record<string, unknown>,
+      draft:      { text: finalResponseText, mode: responseMode, badge: finalBadgeText },
+      validation: qaResult as unknown as Record<string, unknown>,
       final_status: 'approved_for_queue',
     });
     console.log('[orchestrator] analysis saved:', analysis?.id);
@@ -206,11 +208,11 @@ export async function runPatientMessageWorkflow(
     console.log('[orchestrator] message status updated to:', finalStatus);
 
     // 4. Save draft response
-    const draftStatus = responseResult.requires_approval ? 'needs_review' : 'approved';
+    const draftStatus = qaResult.requires_human_review ? 'needs_review' : 'approved';
     const draft = await createDraft({
       message_id:  message.id,
       analysis_id: analysis?.id ?? null,
-      draft_text:  responseResult.response_text,
+      draft_text:  finalResponseText,
       status:      draftStatus,
       edited_text: null,
       approved_by: null,
@@ -255,8 +257,8 @@ export async function runPatientMessageWorkflow(
 
   return {
     workflow,
-    draftText: responseResult.response_text,
-    badgeText: responseResult.badge_text,
+    draftText: finalResponseText,
+    badgeText: finalBadgeText,
     responseType,
     messageId,
   };

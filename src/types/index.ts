@@ -96,12 +96,24 @@ export interface PlannerAction {
   requires_approval: boolean;
 }
 
+export interface QAIssueDisplay {
+  type: string;
+  severity: string;
+  description: string;
+}
+
 export interface WorkflowStep {
   intent: { intent: string; domain: string; confidence: number };
   safety: { risk: string; review: string; routeTo: string };
   knowledge: { source: string; rule: string; relevance?: string };
   planner: { status: string; actions: PlannerAction[] };
-  validation: { status: string; issue: string };
+  validation: {
+    qaStatus: string;
+    canAutoSend: boolean;
+    requiresHumanReview: boolean;
+    reasonSummary: string;
+    issues: QAIssueDisplay[];
+  };
 }
 
 export interface SimConversation {

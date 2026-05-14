@@ -264,12 +264,20 @@ function AgentWorkflowResult({ wf, visible, running }: { wf: WorkflowStep; visib
               }))}
             />
             <AgentStep
-              num="5" iconKey="checkCircle" tone="green"
-              title="Validation Agent"
-              right={<Badge tone="green" dot>Approved for queue</Badge>}
+              num="5" iconKey="checkCircle"
+              tone={wf.validation.qaStatus.toLowerCase().includes('blocked') ? 'red' : wf.validation.qaStatus.toLowerCase().includes('revision') ? 'amber' : 'green'}
+              title="QA Agent"
+              right={<QAStatusBadge status={wf.validation.qaStatus} />}
               kv={[
-                { k: 'Status', v: wf.validation.status },
-                { k: 'Issue',  v: wf.validation.issue },
+                { k: 'QA Status',      v: wf.validation.qaStatus },
+                { k: 'Auto-send',      v: wf.validation.canAutoSend ? 'Approved' : 'Requires approval' },
+                { k: 'Summary',        v: wf.validation.reasonSummary },
+                ...wf.validation.issues.map((issue, i) => ({
+                  k: `Issue ${i + 1}`,
+                  v: `${issue.type.replace(/_/g, ' ')} (${issue.severity}): ${issue.description}`,
+                  warn: issue.severity === 'medium',
+                  danger: issue.severity === 'high',
+                })),
               ]}
             />
           </div>
@@ -277,6 +285,12 @@ function AgentWorkflowResult({ wf, visible, running }: { wf: WorkflowStep; visib
       </div>
     </div>
   );
+}
+
+function QAStatusBadge({ status }: { status: string }) {
+  const s = status.toLowerCase();
+  const tone = s.includes('blocked') ? 'red' : s.includes('revision') ? 'amber' : 'green';
+  return <Badge tone={tone as 'green' | 'amber' | 'red'} dot>{status}</Badge>;
 }
 
 function PlannerStatusBadge({ status }: { status: string }) {

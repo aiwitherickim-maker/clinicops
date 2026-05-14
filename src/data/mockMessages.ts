@@ -108,7 +108,13 @@ export const SIM_CONVERSATIONS: SimConversation[] = [
           { title: 'Send pre-approved safety escalation response', role: 'Clinician', priority: 'urgent', reason: 'Pre-approved safety template auto-sent; clinician must follow up directly', requires_approval: false },
         ],
       },
-      validation:{ status: 'Approved for review queue', issue: 'No autonomous medical advice detected' },
+      validation: {
+        qaStatus: 'Approved',
+        canAutoSend: false,
+        requiresHumanReview: true,
+        reasonSummary: 'Response uses safe escalation language; clinical team alerted.',
+        issues: [],
+      },
     },
   },
 ];
