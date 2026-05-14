@@ -202,19 +202,18 @@ export async function runPatientMessageWorkflow(
     });
     console.log('[orchestrator] draft saved:', draft?.id);
 
-    // 5. Create task if human review required
-    if (safety.needs_human_review) {
-      const task = await createTaskFromMessage(
-        clinicId,
-        message.id,
-        `Review ${intent.domain} message from ${patientName}`,
-        {
-          assignedRole: toRouteLabel(safety.route_to),
-          priority:     toTaskPriority(safety),
-        },
-      );
-      console.log('[orchestrator] task created:', task?.id, '| priority:', task?.priority);
-    }
+    // 5. Always create a task — every message needs staff follow-up.
+    //    needs_human_review drives priority, not whether a task exists.
+    const task = await createTaskFromMessage(
+      clinicId,
+      message.id,
+      `Review ${intent.domain} message from ${patientName}`,
+      {
+        assignedRole: toRouteLabel(safety.route_to),
+        priority:     toTaskPriority(safety),
+      },
+    );
+    console.log('[orchestrator] task created:', task?.id, '| priority:', task?.priority);
 
   } catch (err) {
     console.error('[orchestrator] Supabase persist error:', err);
