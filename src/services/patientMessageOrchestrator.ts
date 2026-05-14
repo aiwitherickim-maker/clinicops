@@ -11,6 +11,7 @@ import { runKnowledgeAgent, type KnowledgeResult } from './agents/knowledgeAgent
 import { runActionPlannerAgent, type ActionPlannerResult } from './agents/actionPlannerAgent';
 import { runResponseAgent, type ResponseMode } from './agents/responseAgent';
 import { runQAAgent } from './agents/qaAgent';
+import { runStaffFollowupDraftAgent } from './agents/staffFollowupDraftAgent';
 import { createMessage, updateMessageStatus } from './db/messageService';
 import { saveAgentAnalysis } from './db/analysisService';
 import { createDraft } from './db/draftService';
@@ -210,18 +211,31 @@ export async function runPatientMessageWorkflow(
     await updateMessageStatus(message.id, finalStatus);
     console.log('[orchestrator] message status updated to:', finalStatus);
 
-    // 4. Save draft response
-    const draftStatus = qaResult.requires_human_review ? 'needs_review' : 'approved';
+    // 4. Generate staff follow-up draft and save to draft_responses
+    //    This is what staff see in the Staff Review Inbox — separate from the
+    //    immediate patient response which has already been returned/sent above.
+    const staffDraft = await runStaffFollowupDraftAgent({
+      messageText,
+      patientName,
+      intent,
+      safety,
+      knowledge,
+      planner,
+      qaResult,
+      clinicPhone: '(734) 555-0142',
+    });
+    console.log('[orchestrator] staff draft generated:', staffDraft.draft_type, '| role:', staffDraft.intended_sender_role);
+
     const draft = await createDraft({
       message_id:  message.id,
       analysis_id: analysis?.id ?? null,
-      draft_text:  finalResponseText,
-      status:      draftStatus,
+      draft_text:  staffDraft.draft_text,
+      status:      'needs_review',
       edited_text: null,
       approved_by: null,
       approved_at: null,
     });
-    console.log('[orchestrator] draft saved:', draft?.id, '| status:', draftStatus);
+    console.log('[orchestrator] staff draft saved:', draft?.id);
 
     // 5. Create tasks for every create_task action in the planner result
     const taskActions = planner.recommended_actions.filter(a => a.type === 'create_task');

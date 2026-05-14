@@ -36,6 +36,53 @@ export async function analyzePatientMessageAndPersist(
   return data;
 }
 
+// ─── Staff follow-up draft ────────────────────────────────────────────────────
+
+export interface GenerateStaffDraftRequest {
+  messageText: string;
+  patientName: string;
+  category: string;
+  riskLevel: string;
+  routeTo: string;
+  taskTitle: string;
+  taskAssignee: string;
+  reason: string;
+  clinicPhone?: string;
+}
+
+export interface StaffFollowupDraftClientResult {
+  draftText: string;
+  draftType: string;
+  intendedSenderRole: string;
+  requiresClinicianApproval: boolean;
+  canBeSentByAssignedStaff: boolean;
+  missingInformation: string[];
+  safetyNotes: string;
+  reasonSummary: string;
+}
+
+export async function generateStaffFollowupDraft(
+  req: GenerateStaffDraftRequest,
+): Promise<StaffFollowupDraftClientResult> {
+  console.log('[agentService] calling /api/generate-staff-draft for:', req.patientName);
+
+  const res = await fetch('/api/generate-staff-draft', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(req),
+  });
+
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    console.error('[agentService] generate-staff-draft API error:', res.status, err);
+    throw new Error(`generate-staff-draft API returned ${res.status}`);
+  }
+
+  const data = await res.json() as StaffFollowupDraftClientResult;
+  console.log('[agentService] staff draft received | type:', data.draftType, '| role:', data.intendedSenderRole);
+  return data;
+}
+
 // ─── Unimplemented stubs ──────────────────────────────────────────────────────
 
 export async function classifyPatientMessage(
