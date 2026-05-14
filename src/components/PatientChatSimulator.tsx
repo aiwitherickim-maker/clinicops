@@ -265,12 +265,12 @@ function AgentWorkflowResult({ wf, visible, running }: { wf: WorkflowStep; visib
             />
             <AgentStep
               num="5" iconKey="checkCircle"
-              tone={wf.validation.qaStatus.toLowerCase().includes('blocked') ? 'red' : wf.validation.qaStatus.toLowerCase().includes('revision') ? 'amber' : 'green'}
+              tone={wf.validation.qaStatus.toLowerCase().includes('blocked') ? 'red' : (wf.validation.qaStatus.toLowerCase().includes('revision') || wf.validation.qaStatus.toLowerCase().includes('fallback')) ? 'amber' : 'green'}
               title="QA Agent"
               right={<QAStatusBadge status={wf.validation.qaStatus} />}
               kv={[
                 { k: 'QA Status',      v: wf.validation.qaStatus },
-                { k: 'Auto-send',      v: wf.validation.canAutoSend ? 'Approved' : 'Requires approval' },
+                { k: 'Auto-send',      v: wf.validation.qaStatus.toLowerCase().includes('fallback') ? 'Approved safety fallback' : wf.validation.canAutoSend ? 'Approved' : 'Requires approval' },
                 { k: 'Summary',        v: wf.validation.reasonSummary },
                 ...wf.validation.issues.map((issue, i) => ({
                   k: `Issue ${i + 1}`,
@@ -289,7 +289,7 @@ function AgentWorkflowResult({ wf, visible, running }: { wf: WorkflowStep; visib
 
 function QAStatusBadge({ status }: { status: string }) {
   const s = status.toLowerCase();
-  const tone = s.includes('blocked') ? 'red' : s.includes('revision') ? 'amber' : 'green';
+  const tone = s.includes('blocked') ? 'red' : (s.includes('revision') || s.includes('fallback')) ? 'amber' : 'green';
   return <Badge tone={tone as 'green' | 'amber' | 'red'} dot>{status}</Badge>;
 }
 

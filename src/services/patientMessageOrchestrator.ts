@@ -126,10 +126,13 @@ export async function runPatientMessageWorkflow(
   );
   console.log('[orchestrator] qaResult:', qaResult);
 
-  // Select final response text: approved text if QA passed, safe fallback otherwise
-  const finalResponseText = qaResult.approved_response_text ?? qaResult.safe_fallback_response;
-  const finalBadgeText    = qaResult.badge_text;
-  console.log('[orchestrator] final response selected:', qaResult.qa_status === 'approved' ? 'approved_response_text' : 'safe_fallback_response');
+  // Select final response text based on QA status
+  const finalResponseText =
+    (qaResult.qa_status === 'approved' || qaResult.qa_status === 'fallback_approved')
+      ? (qaResult.approved_response_text ?? qaResult.safe_fallback_response)
+      : qaResult.safe_fallback_response;
+  const finalBadgeText = qaResult.badge_text;
+  console.log('[orchestrator] final response selected:', qaResult.qa_status);
   console.log('[orchestrator] final response text:', finalResponseText.slice(0, 80));
 
   // ── Build WorkflowStep for UI ─────────────────────────────────────────────
@@ -252,7 +255,11 @@ export async function runPatientMessageWorkflow(
     // Don't throw — still return the workflow result so the UI works
   }
 
-  const responseType = responseModeToType(responseMode, safety);
+  // For fallback_approved on clinical-risk, override responseType so badge color is red
+  const responseType: ResponseType =
+    qaResult.qa_status === 'fallback_approved' && safety.risk_level === 'high'
+      ? 'urgent_safety'
+      : responseModeToType(responseMode, safety);
   console.log('[orchestrator] responseType:', responseType);
 
   return {

@@ -26,7 +26,7 @@ export interface QAIssue {
 }
 
 export interface QAResult {
-  qa_status: 'approved' | 'needs_revision' | 'blocked';
+  qa_status: 'approved' | 'fallback_approved' | 'needs_revision' | 'blocked';
   can_display_to_patient: boolean;
   can_auto_send: boolean;
   requires_human_review: boolean;
@@ -38,7 +38,7 @@ export interface QAResult {
   reason_summary: string;
 }
 
-const FALLBACK: QAResult = {
+const GENERIC_FALLBACK: QAResult = {
   qa_status: 'blocked',
   can_display_to_patient: true,
   can_auto_send: false,
@@ -49,6 +49,21 @@ const FALLBACK: QAResult = {
   safe_fallback_response: "Thanks for reaching out. I'm routing your message to the clinic team so they can follow up.",
   badge_text: 'Needs staff review',
   reason_summary: 'QA validation failed, so the response was routed to human review.',
+};
+
+const CLINICAL_FALLBACK: QAResult = {
+  qa_status: 'fallback_approved',
+  can_display_to_patient: true,
+  can_auto_send: true,
+  requires_human_review: true,
+  risk_level: 'high',
+  issues: [{ type: 'other', severity: 'high', description: 'QA validation failed; pre-approved safety escalation used.' }],
+  approved_response_text:
+    "I'm sorry to hear you're experiencing this. Please do not wait — our clinical team is being alerted now. If your symptoms are severe or worsening, please call us at (734) 555-0142 or seek urgent care immediately.",
+  safe_fallback_response:
+    "I'm sorry to hear you're experiencing this. Please do not wait — our clinical team is being alerted now. If your symptoms are severe or worsening, please call us at (734) 555-0142 or seek urgent care immediately.",
+  badge_text: 'Urgent safety response sent · clinician alerted',
+  reason_summary: 'QA validation failed; pre-approved safety escalation sent and case routed to clinician review.',
 };
 
 const SYSTEM_PROMPT = `You are the QA Agent for a medical clinic's AI patient messaging system.
@@ -64,7 +79,7 @@ You must respond with ONLY a valid JSON object — no markdown, no explanation, 
 
 The JSON must follow this exact shape:
 {
-  "qa_status": "<approved | needs_revision | blocked>",
+  "qa_status": "<approved | fallback_approved | needs_revision | blocked>",
   "can_display_to_patient": <true | false>,
   "can_auto_send": <true | false>,
   "requires_human_review": <true | false>,
@@ -133,6 +148,17 @@ approved:
 - can_auto_send = true only if response_mode is send_safe_acknowledgment, send_preapproved_safety_response, or approved_source_answer
 - issues = [] or low-severity only
 
+fallback_approved (clinical-risk only):
+- Use when: the original response failed validation BUT the message is clinical-risk (high/emergency) AND the safe_fallback_response contains proper urgent escalation language ("do not wait", "call", "urgent care").
+- qa_status = "fallback_approved"
+- approved_response_text = the safe_fallback_response text (the fallback IS the approved text)
+- can_display_to_patient = true
+- can_auto_send = true (the pre-approved safety template is safe to send)
+- requires_human_review = true (staff must still follow up)
+- badge_text = "Urgent safety response sent · clinician alerted"
+- Keep the original issues for audit purposes
+- reason_summary should explain that the generated response failed validation so the pre-approved safety fallback was used
+
 needs_revision:
 - qa_status = "needs_revision"
 - approved_response_text = null
@@ -141,15 +167,14 @@ needs_revision:
 - requires_human_review = true
 
 blocked:
+- Use only when both the original response AND any available fallback are unsafe to display.
 - qa_status = "blocked"
 - approved_response_text = null
-- Use safe_fallback_response instead
-- can_display_to_patient = true (show fallback)
 - can_auto_send = false
 - requires_human_review = true
 
-safe_fallback_response: always populate with a conservative, non-clinical acknowledgment.
-badge_text: short UI label — e.g. "Approved · auto-sent", "QA approved · staff review required", "Needs staff review".`;
+safe_fallback_response: always populate. For clinical-risk messages, use urgent escalation language ("please do not wait", "call us", "seek urgent care").
+badge_text: short UI label — e.g. "Approved · auto-sent", "QA approved · staff review required", "Urgent safety response sent · clinician alerted", "Needs staff review".`;
 
 export async function runQAAgent(
   messageText: string,
@@ -166,7 +191,7 @@ export async function runQAAgent(
   const apiKey = process.env.ANTHROPIC_API_KEY;
   if (!apiKey) {
     console.error('[qaAgent] FALLBACK REASON: ANTHROPIC_API_KEY not set');
-    return FALLBACK;
+    return GENERIC_FALLBACK;
   }
 
   const client = new Anthropic({ apiKey });
@@ -197,33 +222,69 @@ export async function runQAAgent(
     raw = response.content[0].type === 'text' ? response.content[0].text : '';
     console.log('[qaAgent] raw Claude response:', raw);
 
+    const isClinicalRisk = safety.risk_level === 'high' || safety.risk_level === 'medium' && intent.domain === 'Clinical';
+
     let parsed: QAResult;
     try {
       parsed = JSON.parse(raw) as QAResult;
     } catch (parseErr) {
       console.error('[qaAgent] FALLBACK REASON: JSON parse failed:', parseErr);
       console.error('[qaAgent] raw text:', raw);
-      return { ...FALLBACK, reason_summary: 'QA fallback: JSON parse error.' };
+      const fallback = isClinicalRisk ? CLINICAL_FALLBACK : GENERIC_FALLBACK;
+      return { ...fallback, reason_summary: 'QA fallback used: JSON parse error.' };
     }
 
-    // Hard safety guards — enforce regardless of Claude's output
-    if (parsed.qa_status === 'blocked' || parsed.qa_status === 'needs_revision') {
-      parsed.approved_response_text = null;
-      parsed.can_auto_send = false;
-      parsed.requires_human_review = true;
-    }
+    // Hard safety guards — enforce regardless of what Claude returned
+
+    // 1. approved: restore response text if Claude forgot to echo it
     if (parsed.qa_status === 'approved' && !parsed.approved_response_text) {
-      // Claude approved but forgot to echo the response text — restore it
       parsed.approved_response_text = responseResult.response_text;
     }
-    // draft_patient_reply can never auto-send
-    if (responseMode === 'draft_patient_reply') {
-      parsed.can_auto_send = false;
+
+    // 2. fallback_approved: set approved_response_text to safe_fallback_response
+    if (parsed.qa_status === 'fallback_approved') {
+      parsed.approved_response_text = parsed.safe_fallback_response || CLINICAL_FALLBACK.safe_fallback_response;
+      parsed.can_display_to_patient = true;
       parsed.requires_human_review = true;
     }
-    // Ensure safe_fallback_response is always populated
+
+    // 3. blocked/needs_revision on clinical-risk: upgrade to fallback_approved
+    //    so patients always receive the pre-approved safety escalation
+    if ((parsed.qa_status === 'blocked' || parsed.qa_status === 'needs_revision') && isClinicalRisk) {
+      const fallbackText = parsed.safe_fallback_response || CLINICAL_FALLBACK.safe_fallback_response;
+      const hasSafeEscalation = /\b(call|urgent|emergency|do not wait|clinical team|immediately)\b/i.test(fallbackText);
+      if (hasSafeEscalation) {
+        console.log('[qaAgent] clinical-risk blocked/needs_revision → upgrading to fallback_approved');
+        parsed.qa_status       = 'fallback_approved';
+        parsed.approved_response_text = fallbackText;
+        parsed.can_display_to_patient = true;
+        parsed.can_auto_send   = true;
+        parsed.requires_human_review = true;
+        parsed.badge_text      = 'Urgent safety response sent · clinician alerted';
+        if (!parsed.reason_summary.includes('fallback')) {
+          parsed.reason_summary = 'The generated response failed QA validation. The pre-approved safety escalation response was sent and the case was routed to clinician review.';
+        }
+      }
+    }
+
+    // 4. blocked/needs_revision on non-clinical: ensure no auto-send
+    if (parsed.qa_status === 'blocked' || parsed.qa_status === 'needs_revision') {
+      parsed.approved_response_text = null;
+      parsed.can_auto_send          = false;
+      parsed.requires_human_review  = true;
+    }
+
+    // 5. draft_patient_reply can never auto-send
+    if (responseMode === 'draft_patient_reply') {
+      parsed.can_auto_send         = false;
+      parsed.requires_human_review = true;
+    }
+
+    // 6. Ensure safe_fallback_response is always populated
     if (!parsed.safe_fallback_response) {
-      parsed.safe_fallback_response = FALLBACK.safe_fallback_response;
+      parsed.safe_fallback_response = isClinicalRisk
+        ? CLINICAL_FALLBACK.safe_fallback_response
+        : GENERIC_FALLBACK.safe_fallback_response;
     }
 
     console.log('[qaAgent] parsed result:', JSON.stringify(parsed));
@@ -233,6 +294,8 @@ export async function runQAAgent(
   } catch (err) {
     console.error('[qaAgent] FALLBACK REASON: Claude API error:', err);
     console.error('[qaAgent] raw at time of error:', raw);
-    return { ...FALLBACK, reason_summary: 'QA fallback: Claude API error.' };
+    const isClinicalRisk = safety.risk_level === 'high' || intent.domain === 'Clinical';
+    const fallback = isClinicalRisk ? CLINICAL_FALLBACK : GENERIC_FALLBACK;
+    return { ...fallback, reason_summary: 'QA fallback used: Claude API error.' };
   }
 }
