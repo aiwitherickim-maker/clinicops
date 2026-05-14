@@ -127,6 +127,12 @@ Auto-send is ONLY allowed if response_mode = send_preapproved_safety_response an
 - Must NOT add unsupported medical or billing facts.
 - Flag source_grounding_issue if the response adds facts not present in the source.
 
+4a. Patient-specific clinical instruction questions
+- If the patient is asking whether to start, stop, continue, hold, skip, change, delay, or modify any medication, treatment, eye drop, or post-procedure behavior:
+  BLOCK the response (source_grounding_issue, severity high) if it gives any patient-specific clinical instruction (even "yes" or "no") without the matched knowledge source explicitly stating that exact instruction.
+  A general FAQ about what medications patients typically use does NOT count as source support for telling a specific patient what to do.
+  APPROVE only if the response is a safe acknowledgment that routes to the clinical team and does NOT give any clinical instruction.
+
 5. Response length
 - Default: 2–4 sentences. Flag too_long (severity: low) if noticeably longer.
 - Do NOT block solely for length unless it is confusing or unsafe.

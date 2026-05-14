@@ -73,7 +73,8 @@ Action type rules — choose exactly the right type:
 Response type by risk level:
 - Low-risk (scheduling, general, billing acknowledgment): create_task + send_safe_acknowledgment, requires_approval=false
 - Medium-risk (billing dispute, procedure prep): create_task + send_safe_acknowledgment, requires_approval=false
-- High-risk (symptoms, post-procedure, medications, pain, bleeding): create_task + send_preapproved_safety_response, requires_approval=false
+- Patient-specific clinical instruction question (intent = clinical_instruction_question): create_task assigned to clinician (priority medium or high) + send_safe_acknowledgment. The safe acknowledgment tells the patient their question has been received and the clinical team will follow up. Do NOT use send_preapproved_safety_response unless the message also contains active/urgent symptoms. Do NOT use draft_patient_reply.
+- High-risk (symptoms, post-procedure, pain, bleeding): create_task + send_preapproved_safety_response, requires_approval=false
 - Emergency (severe symptoms, vision loss, urgent): create_task + send_preapproved_safety_response with priority=urgent, requires_approval=false
 
 Titles:

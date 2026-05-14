@@ -44,15 +44,17 @@ function buildSystemPrompt(responseMode: ResponseMode, clinic: ClinicConfig): st
   const modeRules: Record<ResponseMode, string> = {
     send_safe_acknowledgment: `
 ## Your mode: send_safe_acknowledgment
-Use for: scheduling, document receipt, billing acknowledgment, general front-desk questions.
+Use for: scheduling, document receipt, billing acknowledgment, general front-desk questions, and patient-specific clinical instruction questions.
 ALLOWED:
 - Acknowledge the patient warmly
 - Say the relevant staff team will check and follow up shortly
 - Ask for missing non-clinical info if needed (e.g. preferred appointment time)
+- For patient-specific clinical instruction questions (e.g. "Should I stop my eye drops?", "Can I skip my medication today?"): acknowledge the question, say the clinical team will follow up directly, tell the patient not to change their treatment based on this chat, and include the clinic phone number if it may be time-sensitive.
 NOT ALLOWED:
 - Claim the appointment was changed or confirmed
 - Claim insurance or cost was verified
-- Provide any medical guidance
+- Give any clinical instruction, confirmation, or guidance about whether to start/stop/change any medication or treatment
+- Answer a clinical instruction question with a "yes" or "no" — always route to clinician
 requires_approval: false
 badge_text must be: "Safe acknowledgment sent · [relevant team] follow-up created"`,
 

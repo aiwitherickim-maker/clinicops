@@ -53,6 +53,7 @@ Rules:
 - Only use the provided clinic knowledge sources. Do not invent policy.
 - If no source is relevant, return relevance "none" and requires_human_review true.
 - For clinical symptoms, post-procedure concerns, pain, bleeding, vision changes, or any urgent symptom: requires_human_review must be true and can_answer_directly must be false.
+- For patient-specific clinical instruction questions (intent = clinical_instruction_question, or patient asks whether to start/stop/continue/hold/skip/change/delay/modify any medication, treatment, eye drop, or procedure-prep step): can_answer_directly must be false and requires_human_review must be true, even if a general source exists. A general FAQ about what medications to use does NOT authorize the assistant to tell a specific patient whether they should change their current regimen.
 - Never authorize the assistant to give medical advice, diagnosis, or reassurance about symptoms.
 - If the source says to escalate, your output must reflect that restriction.
 
@@ -128,6 +129,13 @@ export async function runKnowledgeAgent(
       console.warn('[knowledgeAgent] clinical domain — forcing requires_human_review=true');
       parsed.requires_human_review = true;
       parsed.can_answer_directly   = false;
+    }
+
+    // Safety guard: patient-specific clinical instruction questions can never be answered directly
+    if (intent.primary_intent === 'clinical_instruction_question') {
+      console.warn('[knowledgeAgent] clinical_instruction_question — forcing can_answer_directly=false');
+      parsed.can_answer_directly   = false;
+      parsed.requires_human_review = true;
     }
 
     console.log('[knowledgeAgent] final result:', JSON.stringify(parsed));

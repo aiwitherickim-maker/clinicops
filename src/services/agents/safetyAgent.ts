@@ -43,9 +43,10 @@ Safety rules — ALWAYS set risk_level=high and needs_human_review=true if the m
 - Urgent or emergency language
 - Mental health concerns
 
-Set risk_level=medium and needs_human_review=true for:
+Set risk_level=medium and needs_human_review=true and route_to=clinician for:
+- Patient-specific clinical instruction questions: any patient asking whether they should start, stop, continue, hold, skip, change, delay, or modify any medication, eye drop, treatment, procedure-prep step, or post-procedure behavior. This includes questions like "Should I stop my eye drops?", "Can I skip my medication today?", "Do I still need the drops after the injection?". These are NOT general FAQ questions — they require clinical judgment and must route to a clinician even if a general source exists.
 - Billing disputes or insurance questions requiring case review
-- Questions about specific clinical procedures (prep, recovery)
+- Questions about specific clinical procedures (prep, recovery) without patient-specific instruction
 - Prescription refill requests
 
 Set risk_level=low and needs_human_review=false ONLY for:

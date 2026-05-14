@@ -30,6 +30,7 @@ The JSON must follow this exact shape:
 Allowed primary_intent labels:
 - post_procedure_symptom
 - clinical_symptom
+- clinical_instruction_question
 - medication_question
 - procedure_prep
 - scheduling_request
@@ -40,13 +41,14 @@ Allowed primary_intent labels:
 - unknown
 
 Domain guidance:
-- Clinical: symptoms, medications, procedures, post-op concerns, pain, vision changes, bleeding, worsening symptoms, clinical questions after treatment
+- Clinical: symptoms, medications, procedures, post-op concerns, pain, vision changes, bleeding, worsening symptoms, clinical questions after treatment, patient-specific treatment instructions
 - Billing: cost questions, co-pays, invoices, payment, balances
 - Scheduling: appointments, rescheduling, cancellations, availability
 - Insurance: insurance cards, coverage verification, prior authorization, insurance documents
 - General: hours, location, directions, other non-clinical topics
 
 Important classification rules:
+- If a patient asks whether they should start, stop, continue, hold, skip, change, delay, or modify any medication, eye drop, treatment, procedure-prep step, or post-procedure behavior — even if framed as a general question — classify as clinical_instruction_question with domain Clinical. Examples: "Should I stop my eye drops?", "Can I skip my medication today?", "Do I still need to use the drops after the injection?", "Should I continue my blood pressure medication before the procedure?"
 - If the patient mentions pain, bleeding, vision changes, symptoms, medication, complications, or asks whether they should wait after a procedure, classify as Clinical.
 - If the patient mentions symptoms after a procedure, injection, surgery, or treatment, classify as post_procedure_symptom.
 - Do not classify post-procedure pain, vision changes, or bleeding as General.
@@ -62,6 +64,26 @@ Return:
   "domain": "Clinical",
   "confidence": 0.95,
   "summary": "Patient reports eye pain after an injection and asks whether they should wait."
+}
+
+Patient message:
+"Should I stop my eye drops before my appointment?"
+Return:
+{
+  "primary_intent": "clinical_instruction_question",
+  "domain": "Clinical",
+  "confidence": 0.95,
+  "summary": "Patient is asking whether to stop using their eye drops before an appointment."
+}
+
+Patient message:
+"Can I skip my blood pressure medication today before the procedure?"
+Return:
+{
+  "primary_intent": "clinical_instruction_question",
+  "domain": "Clinical",
+  "confidence": 0.95,
+  "summary": "Patient asks whether to skip blood pressure medication before a procedure."
 }
 
 Patient message:
