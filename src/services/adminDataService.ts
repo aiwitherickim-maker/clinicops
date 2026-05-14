@@ -507,25 +507,26 @@ export async function getPatients(clinicId?: string): Promise<DbPatient[]> {
 }
 
 export async function getPatientByName(name: string, clinicId?: string): Promise<DbPatient | null> {
-  if (!isSupabaseConfigured()) {
+  const mockFallback = () => {
     const lower = name.toLowerCase();
     return MOCK_PATIENTS.find(p =>
       p.full_name.toLowerCase().includes(lower) &&
       (!clinicId || p.clinic_id === clinicId)
     ) ?? null;
-  }
+  };
+
+  if (!isSupabaseConfigured()) return mockFallback();
 
   const sb = getSupabaseClient()!;
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  let query = (sb.from('patients') as any)
-    .select('*')
-    .ilike('full_name', `%${name}%`)
-    .limit(1)
-    .single();
+  let query = (sb.from('patients') as any).select('*').ilike('full_name', `%${name}%`);
   if (clinicId) query = query.eq('clinic_id', clinicId);
+  const { data, error } = await query.limit(1).single();
 
-  const { data, error } = await query;
-  if (error) { console.error('[adminDataService] getPatientByName:', error.message); return null; }
+  if (error) {
+    console.warn('[adminDataService] getPatientByName:', error.message, '— using mock fallback');
+    return mockFallback();
+  }
   return data;
 }
 
@@ -731,8 +732,17 @@ export async function getAdminCaseSummary(patientId: string): Promise<AdminCaseS
   ]);
 
   if (patientResult.error || !patientResult.data) {
-    console.error('[adminDataService] getAdminCaseSummary: patient not found:', patientResult.error?.message);
-    return null;
+    console.warn('[adminDataService] getAdminCaseSummary: patient lookup failed:', patientResult.error?.message, '— using mock fallback');
+    const patient = MOCK_PATIENTS.find(p => p.id === patientId) ?? null;
+    if (!patient) return null;
+    return {
+      patient,
+      appointments:        MOCK_APPOINTMENTS.filter(a => a.patient_id === patientId),
+      insuranceProfiles:   MOCK_INSURANCE_PROFILES.filter(ip => ip.patient_id === patientId),
+      procedures:          MOCK_PROCEDURES.filter(p => p.patient_id === patientId),
+      priorAuthorizations: MOCK_PRIOR_AUTHORIZATIONS.filter(pa => pa.patient_id === patientId),
+      billingCases:        MOCK_BILLING_CASES.filter(bc => bc.patient_id === patientId),
+    };
   }
 
   if (appointmentsResult.error) console.error('[adminDataService] getAdminCaseSummary appointments:', appointmentsResult.error.message);
