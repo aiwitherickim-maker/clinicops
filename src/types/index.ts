@@ -85,6 +85,7 @@ export interface ChatMessage {
   t: string;
   draft?: boolean;
   responseType?: ResponseType;
+  badgeText?: string;
 }
 
 export interface PlannerAction {

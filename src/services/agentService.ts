@@ -5,6 +5,7 @@ import type { InboxMessage, CommandAction, WorkflowStep, ChatMessage, ResponseTy
 export interface AnalyzeResult {
   workflow: WorkflowStep;
   draftText: string;
+  badgeText: string;
   responseType: ResponseType;
   messageId: string | null;
 }

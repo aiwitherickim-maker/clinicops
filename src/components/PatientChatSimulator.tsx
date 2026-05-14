@@ -50,6 +50,7 @@ export function PatientChatSimulator() {
         t: time,
         draft: true,
         responseType: result.responseType,
+        badgeText: result.badgeText,
       }]);
     } catch (err) {
       console.error('[PatientChatSimulator] workflow error:', err);
@@ -177,12 +178,13 @@ function ChatBubble({ m }: { m: ChatMessage }) {
     );
   }
   const badge = responseBadge(m.responseType);
+  const displayText = m.badgeText ?? badge.text;
   return (
     <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start' }}>
       <div className="assistant-label">
         <div className="av">A</div>
         <div className="nm">ArborCare</div>
-        {m.draft && <Badge tone={badge.tone} dot>{badge.text}</Badge>}
+        {m.draft && <Badge tone={badge.tone} dot>{displayText}</Badge>}
       </div>
       <div className={`bubble assistant${m.draft ? ' draft' : ''}`}>{m.text}</div>
       <div className="bubble-meta">{m.t}</div>

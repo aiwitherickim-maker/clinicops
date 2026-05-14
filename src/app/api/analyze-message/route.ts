@@ -33,6 +33,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({
       workflow:      result.workflow,
       draftText:     result.draftText,
+      badgeText:     result.badgeText,
       responseType:  result.responseType,
       messageId:     result.messageId,
     });

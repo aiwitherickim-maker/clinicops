@@ -95,7 +95,7 @@ export const SIM_CONVERSATIONS: SimConversation[] = [
     label: 'Post-procedure symptom',
     initialMessages: [
       { who: 'patient', text: 'Hi — my eye has been hurting since the injection yesterday. Should I wait?', t: '7:42 AM' },
-      { who: 'assistant', text: "I'm sorry you're experiencing this. I'm going to flag this for the clinical team now. If you have severe pain, sudden vision changes, or rapidly worsening symptoms, please contact the clinic immediately or seek urgent care.", t: '7:42 AM', draft: true, responseType: 'urgent_safety' as const },
+      { who: 'assistant', text: "I'm sorry you're experiencing this. I'm going to flag this for the clinical team now. If you have severe pain, sudden vision changes, or rapidly worsening symptoms, please contact the clinic immediately or seek urgent care.", t: '7:42 AM', draft: true, responseType: 'urgent_safety' as const, badgeText: 'Urgent safety response sent · clinician alerted' },
     ],
     workflow: {
       intent:    { intent: 'Post-procedure symptom', domain: 'Clinical', confidence: 92 },

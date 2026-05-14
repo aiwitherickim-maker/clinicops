@@ -1,8 +1,7 @@
 // patientMessageOrchestrator.ts — server-side only.
 // Orchestrates the full patient message workflow:
-//   patient message → Intent Agent (Claude) → Safety Agent (Claude)
-//   → Knowledge Agent (Claude) → Action Planner Agent (Claude)
-//   → mock Drafting/Validation agents
+//   Intent Agent → Safety Agent → Knowledge Agent → Action Planner Agent
+//   → Controlled Response Agent
 //   → persist to Supabase
 //   → return WorkflowStep for UI display
 
@@ -10,6 +9,7 @@ import { runIntentAgent, type IntentResult } from './agents/intentAgent';
 import { runSafetyAgent, type SafetyResult } from './agents/safetyAgent';
 import { runKnowledgeAgent, type KnowledgeResult } from './agents/knowledgeAgent';
 import { runActionPlannerAgent, type ActionPlannerResult } from './agents/actionPlannerAgent';
+import { runResponseAgent, type ResponseMode } from './agents/responseAgent';
 import { createMessage, updateMessageStatus } from './db/messageService';
 import { saveAgentAnalysis } from './db/analysisService';
 import { createDraft } from './db/draftService';
@@ -17,20 +17,7 @@ import { createTaskFromMessage } from './db/taskDbService';
 import type { WorkflowStep, ResponseType } from '@/types';
 import type { MessageStatus, TaskPriority } from '@/types/database';
 
-// ─── mock agents ──────────────────────────────────────────────────────────────
-
-function mockDraftingAgent(intent: IntentResult, safety: SafetyResult): string {
-  if (safety.risk_level === 'high') {
-    return "I'm sorry you're experiencing this. I've flagged your message for our clinical team — someone will follow up with you very shortly. If you have severe or rapidly worsening symptoms, please call us immediately at (734) 555-0142 or go to urgent care.";
-  }
-  if (intent.domain === 'Billing') {
-    return "Thank you for your question about billing. A member of our billing team will review your account and follow up with the details you need.";
-  }
-  if (intent.domain === 'Scheduling') {
-    return "Thank you for reaching out. Our front desk will check availability and confirm your appointment change shortly.";
-  }
-  return "Thank you for your message. A staff member will review it and follow up with you soon.";
-}
+// ─── mock validation agent ────────────────────────────────────────────────────
 
 function mockValidationAgent(safety: SafetyResult) {
   return {
@@ -62,18 +49,27 @@ function toRouteLabel(routeTo: string): string {
   }
 }
 
-function deriveResponseType(planner: ActionPlannerResult, safety: SafetyResult): ResponseType {
+function deriveResponseMode(planner: ActionPlannerResult, knowledge: KnowledgeResult): ResponseMode {
+  // Approved-source answer takes priority when knowledge can answer directly
+  if (knowledge.can_answer_directly && (knowledge.relevance === 'high' || knowledge.relevance === 'medium')) {
+    return 'approved_source_answer';
+  }
   const replyAction = planner.recommended_actions.find(a =>
     a.type === 'send_safe_acknowledgment' ||
     a.type === 'send_preapproved_safety_response' ||
     a.type === 'draft_patient_reply',
   );
-  if (!replyAction) return 'no_reply';
-  if (replyAction.type === 'send_safe_acknowledgment') return 'safe_acknowledgment';
-  if (replyAction.type === 'send_preapproved_safety_response') {
-    return safety.risk_level === 'high' ? 'urgent_safety' : 'preapproved_safety';
+  if (!replyAction) return 'draft_patient_reply';
+  return replyAction.type as ResponseMode;
+}
+
+function responseModeToType(mode: ResponseMode, safety: SafetyResult): ResponseType {
+  switch (mode) {
+    case 'send_safe_acknowledgment':         return 'safe_acknowledgment';
+    case 'approved_source_answer':           return 'source_answered';
+    case 'send_preapproved_safety_response': return safety.risk_level === 'high' ? 'urgent_safety' : 'preapproved_safety';
+    case 'draft_patient_reply':              return 'draft_review';
   }
-  return 'draft_review';
 }
 
 function toWorkflowStatusLabel(status: string): string {
@@ -92,6 +88,7 @@ function toWorkflowStatusLabel(status: string): string {
 export interface OrchestratorResult {
   workflow: WorkflowStep;
   draftText: string;
+  badgeText: string;
   responseType: ResponseType;
   messageId: string | null;
 }
@@ -119,11 +116,22 @@ export async function runPatientMessageWorkflow(
   const planner = await runActionPlannerAgent(messageText, intent, safety, knowledge);
   console.log('[orchestrator] planner:', planner);
 
-  // ── Step 5: Mock drafting + validation agents ─────────────────────────────
-  const draftText  = mockDraftingAgent(intent, safety);
-  const validation = mockValidationAgent(safety);
+  // ── Step 5: Controlled Response Agent (real Claude) ─────────────────────
+  const responseMode = deriveResponseMode(planner, knowledge);
+  console.log('[orchestrator] responseMode:', responseMode);
 
-  console.log('[orchestrator] mock agents complete');
+  const responseResult = await runResponseAgent(
+    messageText, intent, safety, knowledge, planner, responseMode,
+    {
+      assistantName: 'ArborCare Assistant',
+      tone:          'Professional and warm',
+      phone:         '(734) 555-0142',
+    },
+  );
+  console.log('[orchestrator] response agent result:', responseResult);
+
+  // ── Step 6: Mock validation agent ────────────────────────────────────────
+  const validation = mockValidationAgent(safety);
 
   // ── Build WorkflowStep for UI ─────────────────────────────────────────────
   const workflow: WorkflowStep = {
@@ -186,7 +194,7 @@ export async function runPatientMessageWorkflow(
       safety:     safety as unknown as Record<string, unknown>,
       knowledge:  knowledge as unknown as Record<string, unknown>,
       actions:    planner as unknown as Record<string, unknown>,
-      draft:      { text: draftText },
+      draft:      { text: responseResult.response_text, mode: responseMode, badge: responseResult.badge_text },
       validation: validation as Record<string, unknown>,
       final_status: 'approved_for_queue',
     });
@@ -198,16 +206,17 @@ export async function runPatientMessageWorkflow(
     console.log('[orchestrator] message status updated to:', finalStatus);
 
     // 4. Save draft response
+    const draftStatus = responseResult.requires_approval ? 'needs_review' : 'approved';
     const draft = await createDraft({
       message_id:  message.id,
       analysis_id: analysis?.id ?? null,
-      draft_text:  draftText,
-      status:      'needs_review',
+      draft_text:  responseResult.response_text,
+      status:      draftStatus,
       edited_text: null,
       approved_by: null,
       approved_at: null,
     });
-    console.log('[orchestrator] draft saved:', draft?.id);
+    console.log('[orchestrator] draft saved:', draft?.id, '| status:', draftStatus);
 
     // 5. Create tasks for every create_task action in the planner result
     const taskActions = planner.recommended_actions.filter(a => a.type === 'create_task');
@@ -241,8 +250,14 @@ export async function runPatientMessageWorkflow(
     // Don't throw — still return the workflow result so the UI works
   }
 
-  const responseType = deriveResponseType(planner, safety);
+  const responseType = responseModeToType(responseMode, safety);
   console.log('[orchestrator] responseType:', responseType);
 
-  return { workflow, draftText, responseType, messageId };
+  return {
+    workflow,
+    draftText: responseResult.response_text,
+    badgeText: responseResult.badge_text,
+    responseType,
+    messageId,
+  };
 }
