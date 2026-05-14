@@ -124,11 +124,34 @@ export interface SimConversation {
   workflow: WorkflowStep;
 }
 
+export interface StageLog {
+  stage: string;
+  label: string;
+  status: 'started' | 'completed' | 'skipped' | 'failed';
+  timestamp: string;
+  details?: string;
+}
+
+export interface BackofficeBlockerSummary {
+  type: string;
+  severity: 'low' | 'medium' | 'high';
+  description: string;
+}
+
+export interface BackofficeCreatedItemSummary {
+  type: string;
+  title: string;
+  status: 'created' | 'prepared' | 'skipped';
+}
+
 export interface CommandChatMessage {
   who: 'staff' | 'bot';
   text: string;
   t: string;
   actionRefs?: string[];
+  stageLogs?: StageLog[];
+  blockers?: BackofficeBlockerSummary[];
+  createdItems?: BackofficeCreatedItemSummary[];
 }
 
 export interface ActionBadge {
