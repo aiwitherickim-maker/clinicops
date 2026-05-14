@@ -242,7 +242,9 @@ function AgentWorkflowResult({ wf, visible, running }: { wf: WorkflowStep; visib
               right={<PlannerStatusBadge status={wf.planner.status} />}
               kv={wf.planner.actions.map((a, i) => ({
                 k: `Action ${i + 1}`,
-                v: `${a.title} → ${a.role} (${a.priority})`,
+                v: a.requires_approval
+                  ? `${a.title} → Clinician approval required (${a.priority})`
+                  : `${a.title} → ${a.role} (${a.priority})`,
               }))}
             />
             <AgentStep

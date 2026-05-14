@@ -104,8 +104,8 @@ export const SIM_CONVERSATIONS: SimConversation[] = [
       planner:   {
         status: 'needs_clinician_review',
         actions: [
-          { title: 'Create urgent clinician review task', role: 'Clinician', priority: 'urgent', reason: 'Post-procedure symptoms require immediate clinical evaluation' },
-          { title: 'Queue draft response for approval', role: 'Clinician', priority: 'medium', reason: 'AI draft must be approved before sending to patient' },
+          { title: 'Create urgent clinician review task', role: 'Clinician', priority: 'urgent', reason: 'Post-procedure symptoms require immediate clinical evaluation', requires_approval: true },
+          { title: 'Draft safety escalation response', role: 'Clinician', priority: 'urgent', reason: 'AI draft must be approved by clinician before sending to patient', requires_approval: true },
         ],
       },
       validation:{ status: 'Approved for review queue', issue: 'No autonomous medical advice detected' },

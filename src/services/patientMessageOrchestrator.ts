@@ -132,10 +132,11 @@ export async function runPatientMessageWorkflow(
     planner: {
       status: toWorkflowStatusLabel(planner.workflow_status),
       actions: planner.recommended_actions.map(a => ({
-        title:    a.title,
-        role:     toRouteLabel(a.assignee_role),
-        priority: a.priority.charAt(0).toUpperCase() + a.priority.slice(1),
-        reason:   a.reason,
+        title:             a.title,
+        role:              toRouteLabel(a.assignee_role),
+        priority:          a.priority.charAt(0).toUpperCase() + a.priority.slice(1),
+        reason:            a.reason,
+        requires_approval: a.requires_approval,
       })),
     },
     validation: {

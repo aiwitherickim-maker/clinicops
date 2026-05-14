@@ -7,7 +7,7 @@ import type { SafetyResult } from './safetyAgent';
 import type { KnowledgeResult } from './knowledgeAgent';
 
 export interface RecommendedAction {
-  type: 'create_task' | 'notify_staff' | 'send_response' | 'escalate';
+  type: 'create_task' | 'draft_patient_reply' | 'route_to_staff' | 'escalate' | 'no_action';
   title: string;
   description: string;
   assignee_role: 'clinician' | 'billing' | 'front_desk' | 'general_staff';
@@ -52,7 +52,7 @@ The JSON must follow this exact shape:
   "workflow_status": "<needs_clinician_review | needs_billing_review | needs_front_desk_review | ready_for_staff_approval | resolved_by_ai_draft>",
   "recommended_actions": [
     {
-      "type": "<create_task | notify_staff | send_response | escalate>",
+      "type": "<create_task | draft_patient_reply | route_to_staff | escalate | no_action>",
       "title": "<short action title, max 10 words>",
       "description": "<what staff need to do, 1 sentence>",
       "assignee_role": "<clinician | billing | front_desk | general_staff>",
@@ -72,8 +72,10 @@ workflow_status rules:
 
 recommended_actions rules:
 - Always include exactly 1 create_task action as the first action.
-- Optionally include 1 send_response action for the draft.
+- Optionally include 1 draft_patient_reply action to queue a draft for human approval.
 - Maximum 2 actions total — keep the plan tight.
+- NEVER use type "send_response", "send_message", or "notify_staff" — use draft_patient_reply or route_to_staff instead.
+- For clinical-risk messages, the draft_patient_reply title must begin with "Draft" not "Send".
 - priority must match the safety risk_level: high→urgent or high, medium→medium, low→low.
 - If safety.needs_human_review is true, requires_approval must be true for all actions.
 - Never set requires_approval=false for clinical content.
@@ -128,12 +130,48 @@ export async function runActionPlannerAgent(
       return FALLBACK;
     }
 
-    // Safety guard: clinical domain and needs_human_review must yield requires_approval=true
+    // Normalize action types: collapse legacy/hallucinated send types
+    const SEND_TYPE_ALIASES = new Set([
+      'send_response', 'send_message', 'send_patient_response', 'notify_staff',
+    ]);
+    const isClinicalRisk = safety.needs_human_review || intent.domain === 'Clinical';
+
+    parsed.recommended_actions = parsed.recommended_actions.map(a => {
+      let type = a.type as string;
+      let title = a.title;
+
+      // Map send-type aliases → draft_patient_reply
+      if (SEND_TYPE_ALIASES.has(type)) {
+        type = 'draft_patient_reply';
+      }
+
+      // Rewrite "Send" titles → "Draft" for clinical-risk draft actions
+      if (isClinicalRisk && type === 'draft_patient_reply' && /\bsend\b/i.test(title)) {
+        title = title.replace(/\bSend\b/g, 'Draft').replace(/\bsend\b/g, 'draft');
+        // Capitalise first letter
+        title = title.charAt(0).toUpperCase() + title.slice(1);
+      }
+
+      return {
+        ...a,
+        type: type as RecommendedAction['type'],
+        title,
+      };
+    });
+
+    // Safety guard: needs_human_review forces requires_approval=true on every action
     if (safety.needs_human_review) {
       parsed.recommended_actions = parsed.recommended_actions.map(a => ({
         ...a,
         requires_approval: true,
       }));
+    }
+
+    // Safety guard: draft_patient_reply on clinical-risk always requires approval
+    if (isClinicalRisk) {
+      parsed.recommended_actions = parsed.recommended_actions.map(a =>
+        a.type === 'draft_patient_reply' ? { ...a, requires_approval: true } : a,
+      );
     }
 
     // Ensure at least one action exists

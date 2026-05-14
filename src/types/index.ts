@@ -83,6 +83,7 @@ export interface PlannerAction {
   role: string;
   priority: string;
   reason: string;
+  requires_approval: boolean;
 }
 
 export interface WorkflowStep {
