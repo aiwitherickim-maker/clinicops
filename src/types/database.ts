@@ -51,11 +51,14 @@ export interface DbAgentAnalysis {
   created_at: string;
 }
 
+export type DraftType = 'immediate_patient_response' | 'staff_followup_draft';
+
 export interface DbDraftResponse {
   id: string;
   message_id: string;
   analysis_id: string | null;
   draft_text: string;
+  draft_type: DraftType;
   status: DraftStatus;
   edited_text: string | null;
   approved_by: string | null;
@@ -117,7 +120,7 @@ export interface Database {
       };
       draft_responses: {
         Row: DbDraftResponse;
-        Insert: Omit<DbDraftResponse, 'id' | 'created_at' | 'updated_at'>;
+        Insert: Omit<DbDraftResponse, 'id' | 'created_at' | 'updated_at'> & { draft_type?: DraftType };
         Update: Partial<Omit<DbDraftResponse, 'id' | 'created_at'>>;
       };
       tasks: {

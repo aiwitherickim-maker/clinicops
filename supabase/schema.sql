@@ -58,6 +58,7 @@ create table if not exists draft_responses (
   message_id uuid references patient_messages(id) on delete cascade,
   analysis_id uuid references agent_analyses(id) on delete set null,
   draft_text text not null,
+  draft_type text default 'staff_followup_draft',  -- 'immediate_patient_response' | 'staff_followup_draft'
   status text default 'needs_review',
   edited_text text,
   approved_by uuid references staff(id) on delete set null,

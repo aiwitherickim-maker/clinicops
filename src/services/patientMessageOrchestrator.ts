@@ -211,9 +211,21 @@ export async function runPatientMessageWorkflow(
     await updateMessageStatus(message.id, finalStatus);
     console.log('[orchestrator] message status updated to:', finalStatus);
 
-    // 4. Generate staff follow-up draft and save to draft_responses
-    //    This is what staff see in the Staff Review Inbox — separate from the
-    //    immediate patient response which has already been returned/sent above.
+    // 4a. Save the immediate patient response for audit
+    const immediateStatus = qaResult.can_auto_send ? 'approved' : 'needs_review';
+    await createDraft({
+      message_id:  message.id,
+      analysis_id: analysis?.id ?? null,
+      draft_text:  finalResponseText,
+      draft_type:  'immediate_patient_response',
+      status:      immediateStatus,
+      edited_text: null,
+      approved_by: null,
+      approved_at: null,
+    });
+    console.log('[orchestrator] immediate response saved | auto_sent:', qaResult.can_auto_send);
+
+    // 4b. Generate and save staff follow-up draft (shown in Staff Review Inbox)
     const staffDraft = await runStaffFollowupDraftAgent({
       messageText,
       patientName,
@@ -230,6 +242,7 @@ export async function runPatientMessageWorkflow(
       message_id:  message.id,
       analysis_id: analysis?.id ?? null,
       draft_text:  staffDraft.draft_text,
+      draft_type:  'staff_followup_draft',
       status:      'needs_review',
       edited_text: null,
       approved_by: null,

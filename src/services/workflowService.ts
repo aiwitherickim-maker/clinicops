@@ -93,6 +93,7 @@ export async function runMessageWorkflow(input: WorkflowInput): Promise<Workflow
     message_id:  message.id,
     analysis_id: analysis?.id ?? null,
     draft_text:  analysisData.draft.text,
+    draft_type:  'staff_followup_draft',
     status:      'needs_review',
     edited_text: null,
     approved_by: null,

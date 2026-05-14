@@ -122,8 +122,11 @@ function TaskRow({ t, onApprove }: { t: Task; onApprove: () => void }) {
       </td>
       <td><Badge tone={t.priorityTone} dot={t.priority === 'Urgent'}>{t.priority}</Badge></td>
       <td>
-        <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+        <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
           <Badge tone={t.statusTone}>{t.status}</Badge>
+          {t.hasDraft && t.status !== 'Resolved' && (
+            <Badge tone="sage">Draft ready</Badge>
+          )}
           {t.status === 'Pending approval' && (
             <button
               onClick={onApprove}

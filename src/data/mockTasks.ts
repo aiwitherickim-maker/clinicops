@@ -14,6 +14,7 @@ export const TASKS: Task[] = [
     due: 'Today',
     aiCreated: true,
     category: 'clinical',
+    hasDraft: true,
   },
   {
     id: 'tk-2',
@@ -27,6 +28,7 @@ export const TASKS: Task[] = [
     due: 'Today',
     aiCreated: true,
     category: 'billing',
+    hasDraft: true,
   },
   {
     id: 'tk-3',
@@ -40,6 +42,7 @@ export const TASKS: Task[] = [
     due: 'This week',
     aiCreated: true,
     category: 'scheduling',
+    hasDraft: true,
   },
   {
     id: 'tk-4',
@@ -66,6 +69,7 @@ export const TASKS: Task[] = [
     due: 'Today',
     aiCreated: true,
     category: 'clinical',
+    hasDraft: true,
   },
   {
     id: 'tk-6',
@@ -79,6 +83,7 @@ export const TASKS: Task[] = [
     due: 'Today',
     aiCreated: true,
     category: 'billing',
+    hasDraft: true,
   },
 ];
 

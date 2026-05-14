@@ -165,6 +165,7 @@ export interface Task {
   due: string;
   aiCreated: boolean;
   category: string;
+  hasDraft?: boolean;
 }
 
 export interface TaskFilter {

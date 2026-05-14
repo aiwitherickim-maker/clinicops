@@ -1,5 +1,5 @@
 import { getSupabaseClient, isSupabaseConfigured } from '@/lib/supabase';
-import type { DbDraftResponse, DraftStatus } from '@/types/database';
+import type { DbDraftResponse, DraftStatus, DraftType } from '@/types/database';
 import { INBOX } from '@/data/mockMessages';
 
 // ── Mock fallback ─────────────────────────────────────────────────────────────
@@ -8,6 +8,7 @@ const MOCK_DRAFTS: DbDraftResponse[] = INBOX.map(m => ({
   message_id: m.id,
   analysis_id: null,
   draft_text: m.draft,
+  draft_type: 'staff_followup_draft' as DraftType,
   status: 'needs_review' as DraftStatus,
   edited_text: null,
   approved_by: null,
@@ -34,6 +35,27 @@ export async function getDraftForMessage(messageId: string): Promise<DbDraftResp
 
   if (error) { console.error('[draftService] getDraftForMessage:', error.message); return null; }
   return data;
+}
+
+export async function getStaffFollowupDraft(messageId: string): Promise<DbDraftResponse | null> {
+  if (!isSupabaseConfigured()) {
+    return MOCK_DRAFTS.find(d => d.message_id === messageId && d.draft_type === 'staff_followup_draft') ?? null;
+  }
+
+  const sb = getSupabaseClient()!;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const { data, error } = await (sb.from('draft_responses') as any)
+    .select('*')
+    .eq('message_id', messageId)
+    .eq('draft_type', 'staff_followup_draft')
+    .order('created_at', { ascending: false })
+    .limit(1)
+    .single();
+
+  if (error && error.code !== 'PGRST116') {
+    console.error('[draftService] getStaffFollowupDraft:', error.message);
+  }
+  return data ?? null;
 }
 
 export async function createDraft(

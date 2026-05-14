@@ -6,7 +6,7 @@ import type { InboxMessage, Task, Staff, Tone, Risk } from '@/types';
 import type { DbPatientMessage, DbTask, DbStaff, MessageStatus, TaskStatus } from '@/types/database';
 import { getMessages, updateMessageStatus as dbUpdateMessage } from './db/messageService';
 import { getTasks, updateTaskStatus as dbUpdateTask, getTasksByMessageId } from './db/taskDbService';
-import { getDraftForMessage, updateDraftStatus } from './db/draftService';
+import { getDraftForMessage, getStaffFollowupDraft, updateDraftStatus } from './db/draftService';
 import { getStaff } from './db/staffService';
 import { INBOX } from '@/data/mockMessages';
 import { TASKS } from '@/data/mockTasks';
@@ -99,22 +99,28 @@ function roleToCategory(role: string | null): string {
 
 // ─── InboxMessage transform ───────────────────────────────────────────────────
 
-function msgStatusLabel(status: string): string {
+function msgStatusLabel(status: string, routeTo?: string | null): string {
+  if (status === 'needs_review') {
+    const route = (routeTo ?? '').toLowerCase();
+    if (route.includes('billing'))    return 'Billing follow-up';
+    if (route.includes('front desk') || route.includes('front_desk')) return 'Front desk follow-up';
+    return 'Clinician follow-up';
+  }
   switch (status) {
-    case 'needs_review': return 'Needs clinician review';
-    case 'new':          return 'New';
-    case 'analyzing':    return 'Analyzing…';
-    case 'approved':     return 'Approved';
-    case 'escalated':    return 'Escalated';
-    case 'resolved':     return 'Resolved';
-    default:             return status;
+    case 'new':       return 'New';
+    case 'analyzing': return 'Analyzing…';
+    case 'approved':  return 'Ready for approval';
+    case 'escalated': return 'Escalated';
+    case 'resolved':  return 'Resolved';
+    default:          return status;
   }
 }
 
-function dbMessageToInbox(msg: DbPatientMessage): InboxMessage {
-  const risk     = (msg.risk_level ?? 'low') as Risk;
-  const iconTone = riskToTone(risk);                        // icon reflects risk
-  const statusTone = msgStatusTone(msg.status, risk);       // badge reflects status semantics
+async function dbMessageToInbox(msg: DbPatientMessage): Promise<InboxMessage> {
+  const risk       = (msg.risk_level ?? 'low') as Risk;
+  const iconTone   = riskToTone(risk);
+  const statusTone = msgStatusTone(msg.status, risk);
+  const staffDraft = await getStaffFollowupDraft(msg.id);
   return {
     id:           msg.id,
     patient:      msg.patient_name,
@@ -123,14 +129,14 @@ function dbMessageToInbox(msg: DbPatientMessage): InboxMessage {
     message:      msg.message_text,
     category:     msg.category ?? 'General',
     risk,
-    status:       msgStatusLabel(msg.status),
+    status:       msgStatusLabel(msg.status, msg.route_to),
     statusTone,
     received:     formatReceived(msg.created_at),
     routeTo:      msg.route_to ?? 'Staff',
     iconKey:      categoryToIconKey(msg.category),
     iconTone,
     reason:       `Message from ${msg.patient_name} — awaiting staff review.`,
-    draft:        `Thank you for reaching out. A staff member will follow up shortly.`,
+    draft:        staffDraft?.draft_text ?? 'Thank you for reaching out. A staff member will follow up shortly.',
     task: {
       title:    `Review message from ${msg.patient_name}`,
       priority: risk === 'high' ? 'Urgent' : risk === 'medium' ? 'Medium' : 'Low',
@@ -226,9 +232,11 @@ function dbTaskToTask(
 export async function getInboxMessages(): Promise<InboxMessage[]> {
   const msgs = await getMessages();
   if (!msgs.length) return INBOX;
-  return msgs
-    .filter(m => m.status !== 'resolved')
-    .map(dbMessageToInbox);
+  return Promise.all(
+    msgs
+      .filter(m => m.status !== 'resolved')
+      .map(dbMessageToInbox),
+  );
 }
 
 export async function getTaskList(): Promise<Task[]> {
@@ -260,11 +268,11 @@ export async function resolveMessageWorkflow(messageId: string): Promise<void> {
     console.log(`[resolveMessageWorkflow] task "${task.title}" → ${taskResult?.status ?? 'error'}`, { id: task.id });
   }
 
-  // 3. Approve the draft if one exists (DraftStatus has no 'resolved', use 'approved')
-  const draft = await getDraftForMessage(messageId);
+  // 3. Approve the staff follow-up draft if one exists
+  const draft = await getStaffFollowupDraft(messageId);
   if (draft && draft.status === 'needs_review') {
     const draftResult = await updateDraftStatus(draft.id, 'approved');
-    console.log('[resolveMessageWorkflow] draft update →', draftResult?.status ?? 'error', { id: draft.id });
+    console.log('[resolveMessageWorkflow] staff draft update →', draftResult?.status ?? 'error', { id: draft.id });
   }
 }
 

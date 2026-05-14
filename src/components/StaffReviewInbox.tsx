@@ -142,11 +142,20 @@ interface DetailPanelProps {
   toast: { text: string; tone: string } | null;
 }
 
+function formatPreparedFor(role: string | undefined, routeTo: string): string {
+  const r = (role ?? routeTo).toLowerCase().replace('_', ' ');
+  const labels: Record<string, string> = {
+    billing: 'Billing', 'front desk': 'Front Desk', clinician: 'Clinician',
+    'office manager': 'Office Manager', staff: 'Staff',
+  };
+  return labels[r] ?? (r.charAt(0).toUpperCase() + r.slice(1));
+}
+
 function DetailPanel({ msg, staffDraft, isRegenerating, onRegenerate, onResolve, onAssign, flashToast, toast }: DetailPanelProps) {
   const draftText = staffDraft?.draftText ?? msg.draft;
-  const requiresClinicianApproval = staffDraft?.requiresClinicianApproval ?? msg.risk === 'high';
+  const requiresClinicianApproval = staffDraft?.requiresClinicianApproval ?? (msg.risk === 'high' && msg.routeTo === 'Clinician');
   const missingInformation = staffDraft?.missingInformation ?? [];
-  const intendedSenderRole = staffDraft?.intendedSenderRole;
+  const preparedFor = formatPreparedFor(staffDraft?.intendedSenderRole, msg.routeTo);
 
   return (
     <div className="card" style={{ position: 'relative' }}>
@@ -196,11 +205,17 @@ function DetailPanel({ msg, staffDraft, isRegenerating, onRegenerate, onResolve,
 
       <div className="detail-section">
         <div className="label" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-          <span>Staff follow-up draft</span>
-          <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
-            {requiresClinicianApproval && <Badge tone="red" dot>Clinician approval required</Badge>}
-            {!requiresClinicianApproval && <Badge tone="amber" dot>Needs staff review</Badge>}
-            {intendedSenderRole && <Badge tone="neutral">{intendedSenderRole.replace('_', ' ')}</Badge>}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+            <span>Staff follow-up draft</span>
+            <span style={{ fontSize: 11.5, color: 'var(--fg3)', fontWeight: 500 }}>
+              Prepared for: {preparedFor}
+            </span>
+          </div>
+          <div>
+            {requiresClinicianApproval
+              ? <Badge tone="red" dot>Clinician approval required</Badge>
+              : <Badge tone="amber" dot>Ready for staff approval</Badge>
+            }
           </div>
         </div>
 
