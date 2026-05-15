@@ -1265,6 +1265,7 @@ export async function getBackofficeChatMessages(filters?: {
   clinicId?: string;
   commandId?: string;
   limit?: number;
+  after?: string;
 }): Promise<DbBackofficeChatMessage[]> {
   if (!isSupabaseConfigured()) return [];
 
@@ -1275,6 +1276,7 @@ export async function getBackofficeChatMessages(filters?: {
     .order('created_at', { ascending: true });
   if (filters?.clinicId)  query = query.eq('clinic_id', filters.clinicId);
   if (filters?.commandId) query = query.eq('command_id', filters.commandId);
+  if (filters?.after)     query = query.gt('created_at', filters.after);
   query = query.limit(filters?.limit ?? 100);
 
   const { data, error } = await query;

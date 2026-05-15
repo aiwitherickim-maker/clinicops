@@ -10,8 +10,9 @@ export async function GET(req: NextRequest) {
     const clinicId  = searchParams.get('clinicId') ?? 'a0000000-0000-0000-0000-000000000001';
     const commandId = searchParams.get('commandId') ?? undefined;
     const limit     = parseInt(searchParams.get('limit') ?? '100', 10);
+    const after     = searchParams.get('after') ?? undefined;
 
-    const messages = await getBackofficeChatMessages({ clinicId, commandId, limit });
+    const messages = await getBackofficeChatMessages({ clinicId, commandId, limit, after });
     return NextResponse.json({ messages });
   } catch (err) {
     console.error('[api/backoffice-chat-messages] GET error:', err);

@@ -8,6 +8,8 @@ import { Badge, IconTile, ConfidenceMini, Dot } from './Primitives';
 import { IconSend, IconLayers } from './Icons';
 import { analyzePatientMessageAndPersist } from '@/services/agentService';
 
+const CHAT_RESET_KEY = 'clinicops_chat_reset_at';
+
 interface PatientHistoryItem {
   patientMessage: { text: string; t: string; patientName: string };
   assistantMessage: { text: string; t: string; responseType: string; badgeText: string } | null;
@@ -29,9 +31,20 @@ export function PatientChatSimulator() {
     if (scrollRef.current) scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
   }, [messages]);
 
+  const handleReset = () => {
+    if (!window.confirm('Reset chat? The default starter conversation will be restored.')) return;
+    const now = new Date().toISOString();
+    localStorage.setItem(CHAT_RESET_KEY, now);
+    setMessages(SIM_CONVERSATIONS[0].initialMessages);
+    setWorkflow(SIM_CONVERSATIONS[0].workflow);
+  };
+
   const loadHistory = useCallback(async () => {
     try {
-      const res = await fetch('/api/patient-chat-messages?clinicId=a0000000-0000-0000-0000-000000000001');
+      const after = localStorage.getItem(CHAT_RESET_KEY);
+      const url = '/api/patient-chat-messages?clinicId=a0000000-0000-0000-0000-000000000001'
+        + (after ? `&after=${encodeURIComponent(after)}` : '');
+      const res = await fetch(url);
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const items = await res.json() as PatientHistoryItem[];
 
@@ -116,6 +129,9 @@ export function PatientChatSimulator() {
           <h1>Patient Chat Simulator</h1>
           <p className="lede">Preview the white-labeled patient assistant and inspect how each agent decides what to draft, route, and escalate.</p>
         </div>
+        <div className="actions">
+          <ResetButton onClick={handleReset} label="Reset chat" />
+        </div>
       </div>
 
       <div className="split-2col">
@@ -180,6 +196,32 @@ export function PatientChatSimulator() {
         </div>
       </div>
     </div>
+  );
+}
+
+function ResetButton({ onClick, label }: { onClick: () => void; label: string }) {
+  const [hovered, setHovered] = React.useState(false);
+  return (
+    <button
+      onClick={onClick}
+      onMouseEnter={() => setHovered(true)}
+      onMouseLeave={() => setHovered(false)}
+      style={{
+        fontSize: 12.5,
+        fontWeight: 500,
+        padding: '5px 12px',
+        borderRadius: 8,
+        border: '1px solid var(--border)',
+        background: hovered ? 'var(--shell)' : 'transparent',
+        color: hovered ? 'var(--fg2)' : 'var(--fg3)',
+        cursor: 'pointer',
+        outline: 'none',
+        transition: 'background 150ms, color 150ms',
+        whiteSpace: 'nowrap',
+      }}
+    >
+      {label}
+    </button>
   );
 }
 

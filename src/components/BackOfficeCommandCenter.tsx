@@ -177,6 +177,34 @@ function buildActionCards(data: BackofficeApiResponse): CommandAction[] {
   return cards;
 }
 
+const BO_CLEARED_KEY = 'clinicops_bo_cleared_at';
+
+function ResetButton({ onClick, label }: { onClick: () => void; label: string }) {
+  const [hovered, setHovered] = React.useState(false);
+  return (
+    <button
+      onClick={onClick}
+      onMouseEnter={() => setHovered(true)}
+      onMouseLeave={() => setHovered(false)}
+      style={{
+        fontSize: 12.5,
+        fontWeight: 500,
+        padding: '5px 12px',
+        borderRadius: 8,
+        border: '1px solid var(--border)',
+        background: hovered ? 'var(--shell)' : 'transparent',
+        color: hovered ? 'var(--fg2)' : 'var(--fg3)',
+        cursor: 'pointer',
+        outline: 'none',
+        transition: 'background 150ms, color 150ms',
+        whiteSpace: 'nowrap',
+      }}
+    >
+      {label}
+    </button>
+  );
+}
+
 // ── Component ─────────────────────────────────────────────────────────────────
 
 export function BackOfficeCommandCenter() {
@@ -193,14 +221,25 @@ export function BackOfficeCommandCenter() {
   } | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
 
+  const handleClearHistory = () => {
+    if (!window.confirm('Clear command history? The command center will reset to an empty state.')) return;
+    localStorage.setItem(BO_CLEARED_KEY, new Date().toISOString());
+    setChat([]);
+    setActions([]);
+  };
+
   // Load persisted history on mount
   const loadHistory = useCallback(async () => {
     try {
-      const res = await fetch('/api/backoffice-chat-messages?clinicId=a0000000-0000-0000-0000-000000000001&limit=100');
+      const after = localStorage.getItem(BO_CLEARED_KEY);
+      const url = '/api/backoffice-chat-messages?clinicId=a0000000-0000-0000-0000-000000000001&limit=100'
+        + (after ? `&after=${encodeURIComponent(after)}` : '');
+      const res = await fetch(url);
       if (!res.ok) return;
       const json = await res.json() as { messages: DbChatMsg[] };
       if (json.messages && json.messages.length > 0) {
         setChat(json.messages.map(dbMsgToChat));
+        setActions([]);
       }
     } catch {
       // Keep seed data on error — non-critical
@@ -326,6 +365,7 @@ export function BackOfficeCommandCenter() {
         <div className="actions">
           <Button variant="secondary" size="sm"><IconBook size={14} /> Prompt library</Button>
           <Button variant="secondary" size="sm"><IconClock size={14} /> Activity log</Button>
+          <ResetButton onClick={handleClearHistory} label="Clear history" />
         </div>
       </div>
 

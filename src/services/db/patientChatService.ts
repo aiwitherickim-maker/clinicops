@@ -18,12 +18,12 @@ export interface PatientChatRecord {
   validationData: Record<string, unknown> | null;
 }
 
-export async function getPatientChatHistory(clinicId: string): Promise<PatientChatRecord[]> {
+export async function getPatientChatHistory(clinicId: string, after?: string): Promise<PatientChatRecord[]> {
   if (!isSupabaseConfigured()) return [];
 
   const sb = getSupabaseClient()!;
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const { data, error } = await (sb.from('patient_messages') as any)
+  let query = (sb.from('patient_messages') as any)
     .select(`
       id, patient_name, message_text, created_at,
       agent_analyses ( intent, safety, knowledge, actions, draft, validation ),
@@ -32,6 +32,8 @@ export async function getPatientChatHistory(clinicId: string): Promise<PatientCh
     .eq('clinic_id', clinicId)
     .eq('channel', 'simulator')
     .order('created_at', { ascending: true });
+  if (after) query = query.gt('created_at', after);
+  const { data, error } = await query;
 
   if (error) {
     console.error('[patientChatService] error:', error.message);

@@ -110,9 +110,10 @@ export interface PatientHistoryResponseItem {
 
 export async function GET(req: NextRequest) {
   const clinicId = req.nextUrl.searchParams.get('clinicId') ?? 'a0000000-0000-0000-0000-000000000001';
+  const after    = req.nextUrl.searchParams.get('after') ?? undefined;
 
   try {
-    const records = await getPatientChatHistory(clinicId);
+    const records = await getPatientChatHistory(clinicId, after);
     console.log('[api/patient-chat-messages] loaded', records.length, 'records for clinic', clinicId);
 
     const items: PatientHistoryResponseItem[] = records.map(record => ({
