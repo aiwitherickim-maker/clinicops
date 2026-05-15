@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { Sidebar, TopBar } from '@/components/Sidebar';
 import { Dashboard } from '@/components/Dashboard';
 import { PatientChatSimulator } from '@/components/PatientChatSimulator';
@@ -20,9 +20,17 @@ export default function Home() {
   const [section, setSection] = useState<Section>('dashboard');
   const [inbox, setInbox] = useState<InboxMessage[]>(INBOX);
 
-  useEffect(() => {
+  const refreshInbox = useCallback(() => {
     getInboxMessages().then(setInbox);
   }, []);
+
+  // Load on mount
+  useEffect(() => { refreshInbox(); }, [refreshInbox]);
+
+  // Re-fetch every time the user navigates to the inbox tab
+  useEffect(() => {
+    if (section === 'inbox') refreshInbox();
+  }, [section, refreshInbox]);
 
   const reviewCount = inbox.filter(
     (m) => m.risk === 'high' || m.status?.toLowerCase().includes('review')
