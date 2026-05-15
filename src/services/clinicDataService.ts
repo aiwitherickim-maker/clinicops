@@ -311,7 +311,7 @@ export async function approveMessageWorkflow(
     const msg = await dbUpdateMessage(messageId, 'approved');
     if (!msg) throw new Error('Message status update failed');
 
-    await logHumanReviewEvent({
+    void logHumanReviewEvent({
       clinicId, messageId,
       draftId:        draft?.id,
       eventType:      'approved',
@@ -339,7 +339,7 @@ export async function editDraftWorkflow(
     const r = await updateDraftStatus(draft.id, 'needs_review', { edited_text: editedText });
     if (!r) throw new Error('Draft update failed');
 
-    await logHumanReviewEvent({
+    void logHumanReviewEvent({
       clinicId, messageId,
       draftId:        draft.id,
       eventType:      'edited',
@@ -371,7 +371,7 @@ export async function assignMessageWorkflow(
     }
 
     const routeChanged = previousRoute.toLowerCase() !== newRole.toLowerCase();
-    await logHumanReviewEvent({
+    void logHumanReviewEvent({
       clinicId, messageId,
       eventType:     'reassigned',
       originalRoute: previousRoute,
@@ -423,7 +423,7 @@ export async function escalateMessageWorkflow(
     }
 
     const wasUnderEscalated = !previousRoute.toLowerCase().includes('clinician');
-    await logHumanReviewEvent({
+    void logHumanReviewEvent({
       clinicId, messageId,
       taskId:             newTaskId,
       eventType:          'escalated',
@@ -446,7 +446,7 @@ export async function resolveMessageWorkflowWithLog(
 ): Promise<WorkflowResult> {
   try {
     await resolveMessageWorkflow(messageId);
-    await logHumanReviewEvent({
+    void logHumanReviewEvent({
       clinicId, messageId,
       eventType:    'resolved',
       feedbackTags: [],

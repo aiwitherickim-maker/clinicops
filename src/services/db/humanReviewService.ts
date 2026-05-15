@@ -58,7 +58,8 @@ export async function logHumanReviewEvent(
     .single();
 
   if (error) {
-    console.error('[humanReviewService] logHumanReviewEvent:', error.message);
+    // Non-fatal: event logging should never block the staff action that triggered it.
+    console.warn('[humanReviewService] logHumanReviewEvent failed (RLS policy missing? Run migration 006):', error.message);
     return null;
   }
   return data;
