@@ -2,6 +2,7 @@
 // Calls Claude to assess the safety risk of a patient message.
 
 import Anthropic from '@anthropic-ai/sdk';
+import { SONNET } from './models';
 import { parseClaudeJson } from '@/lib/parseClaudeJson';
 import type { IntentResult } from './intentAgent';
 
@@ -75,7 +76,7 @@ export async function runSafetyAgent(
 
   try {
     const response = await client.messages.create({
-      model: 'claude-sonnet-4-6',
+      model: SONNET,
       max_tokens: 256,
       system: SAFETY_SYSTEM_PROMPT,
       messages: [

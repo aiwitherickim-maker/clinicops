@@ -2,6 +2,7 @@
 // Stage 3: Prepare drafts, task specifications, and the assistant response.
 
 import Anthropic from '@anthropic-ai/sdk';
+import { SONNET } from './models';
 import { parseClaudeJson } from '@/lib/parseClaudeJson';
 import type { ParsedBackofficeCommand } from './backofficeCommandAgent';
 import type { BackofficeWorkupResult } from './backofficeWorkupAgent';
@@ -176,7 +177,7 @@ ${caseSummary ? JSON.stringify(caseSummary, null, 2) : 'No patient data availabl
   let raw = '';
   try {
     const response = await client.messages.create({
-      model: 'claude-sonnet-4-6',
+      model: SONNET,
       max_tokens: 2048,
       system: buildSystemPrompt(parsedCommand.command_type, executionScope, parsedCommand.requested_actions),
       messages: [{ role: 'user', content: userContent }],

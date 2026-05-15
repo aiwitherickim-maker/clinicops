@@ -5,6 +5,7 @@
 // approves, or provides a conservative fallback.
 
 import Anthropic from '@anthropic-ai/sdk';
+import { SONNET } from './models';
 import { parseClaudeJson } from '@/lib/parseClaudeJson';
 import type { IntentResult } from './intentAgent';
 import type { SafetyResult } from './safetyAgent';
@@ -205,7 +206,7 @@ export async function runQAAgent(
   let raw = '';
 
   try {
-    console.log('[qaAgent] calling claude-sonnet-4-6...');
+    console.log('[qaAgent] calling ' + SONNET + '...');
 
     const userContent = [
       `Patient message: "${messageText}"`,
@@ -220,7 +221,7 @@ export async function runQAAgent(
     ].join('\n\n');
 
     const response = await client.messages.create({
-      model: 'claude-sonnet-4-6',
+      model: SONNET,
       max_tokens: 768,
       system: SYSTEM_PROMPT,
       messages: [{ role: 'user', content: userContent }],

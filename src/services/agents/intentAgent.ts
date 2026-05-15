@@ -3,6 +3,7 @@
 
 import Anthropic from '@anthropic-ai/sdk';
 import { parseClaudeJson } from '@/lib/parseClaudeJson';
+import { HAIKU } from './models';
 
 export interface IntentResult {
   primary_intent: string;
@@ -131,9 +132,9 @@ export async function runIntentAgent(messageText: string): Promise<IntentResult>
   let raw = '';
 
   try {
-    console.log('[intentAgent] calling claude-sonnet-4-6...');
+    console.log(`[intentAgent] calling ${HAIKU}...`);
     const response = await client.messages.create({
-      model: 'claude-sonnet-4-6',
+      model: HAIKU,
       max_tokens: 256,
       system: INTENT_SYSTEM_PROMPT,
       messages: [

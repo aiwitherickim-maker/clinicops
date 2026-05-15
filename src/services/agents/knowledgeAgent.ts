@@ -3,6 +3,7 @@
 // select the most relevant one for the incoming patient message.
 
 import Anthropic from '@anthropic-ai/sdk';
+import { SONNET } from './models';
 import { parseClaudeJson } from '@/lib/parseClaudeJson';
 import { getKnowledgeSources } from '@/services/db/knowledgeService';
 import type { IntentResult } from './intentAgent';
@@ -98,10 +99,10 @@ export async function runKnowledgeAgent(
   let raw = '';
 
   try {
-    console.log('[knowledgeAgent] calling claude-sonnet-4-6...');
+    console.log('[knowledgeAgent] calling ' + SONNET + '...');
 
     const response = await client.messages.create({
-      model:      'claude-sonnet-4-6',
+      model:      SONNET,
       max_tokens: 512,
       system:     buildSystemPrompt(sourcesBlock),
       messages: [

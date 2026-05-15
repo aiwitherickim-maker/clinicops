@@ -4,6 +4,7 @@
 // it only generates wording for the assigned response mode.
 
 import Anthropic from '@anthropic-ai/sdk';
+import { SONNET } from './models';
 import { parseClaudeJson } from '@/lib/parseClaudeJson';
 import type { IntentResult } from './intentAgent';
 import type { SafetyResult } from './safetyAgent';
@@ -169,7 +170,7 @@ export async function runResponseAgent(
   let raw = '';
 
   try {
-    console.log('[responseAgent] calling claude-sonnet-4-6...');
+    console.log('[responseAgent] calling ' + SONNET + '...');
 
     const userContent = [
       `Patient message: "${messageText}"`,
@@ -180,7 +181,7 @@ export async function runResponseAgent(
     ].join('\n\n');
 
     const response = await client.messages.create({
-      model: 'claude-sonnet-4-6',
+      model: SONNET,
       max_tokens: 512,
       system: buildSystemPrompt(responseMode, clinic),
       messages: [{ role: 'user', content: userContent }],

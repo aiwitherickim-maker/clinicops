@@ -3,6 +3,7 @@
 
 import Anthropic from '@anthropic-ai/sdk';
 import { parseClaudeJson } from '@/lib/parseClaudeJson';
+import { HAIKU } from './models';
 
 export type BackofficeCommandType =
   | 'case_lookup'
@@ -91,7 +92,7 @@ export async function runBackofficeCommandAgent(command: string): Promise<Parsed
 
   try {
     const response = await client.messages.create({
-      model: 'claude-sonnet-4-6',
+      model: HAIKU,
       max_tokens: 512,
       system: SYSTEM_PROMPT,
       messages: [{ role: 'user', content: `Staff command: "${command}"` }],

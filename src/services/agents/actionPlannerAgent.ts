@@ -2,6 +2,7 @@
 // Calls Claude to produce a structured action plan for a patient message.
 
 import Anthropic from '@anthropic-ai/sdk';
+import { SONNET } from './models';
 import { parseClaudeJson } from '@/lib/parseClaudeJson';
 import type { IntentResult } from './intentAgent';
 import type { SafetyResult } from './safetyAgent';
@@ -113,10 +114,10 @@ export async function runActionPlannerAgent(
   let raw = '';
 
   try {
-    console.log('[actionPlannerAgent] calling claude-sonnet-4-6...');
+    console.log('[actionPlannerAgent] calling ' + SONNET + '...');
 
     const response = await client.messages.create({
-      model: 'claude-sonnet-4-6',
+      model: SONNET,
       max_tokens: 512,
       system: SYSTEM_PROMPT,
       messages: [

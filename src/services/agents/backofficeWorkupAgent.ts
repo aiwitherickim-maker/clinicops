@@ -2,6 +2,7 @@
 // Stage 2: Given admin case data, identify blockers and recommend next actions.
 
 import Anthropic from '@anthropic-ai/sdk';
+import { SONNET } from './models';
 import { parseClaudeJson } from '@/lib/parseClaudeJson';
 import type { ParsedBackofficeCommand } from './backofficeCommandAgent';
 import type { AdminCaseSummary } from '@/services/adminDataService';
@@ -93,7 +94,7 @@ ${JSON.stringify(caseSummary, null, 2)}`;
   let raw = '';
   try {
     const response = await client.messages.create({
-      model: 'claude-sonnet-4-6',
+      model: SONNET,
       max_tokens: 1024,
       system: SYSTEM_PROMPT,
       messages: [{ role: 'user', content: userContent }],
