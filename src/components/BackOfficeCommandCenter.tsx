@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState, useRef, useEffect, useCallback } from 'react';
-import { COMMAND_CHAT_SEED, COMMAND_ACTIONS, COMMAND_QUICKS } from '@/data/mockMessages';
+import { COMMAND_CHAT_SEED, COMMAND_QUICKS } from '@/data/mockMessages';
 import type {
   CommandChatMessage, CommandAction, StageLog,
   BackofficeBlockerSummary, BackofficeCreatedItemSummary,
@@ -72,12 +72,21 @@ interface BackofficeApiResponse {
   stage_logs: StageLog[];
 }
 
-// ── Action card builder ───────────────────────────────────────────────────────
+// ── Workup output ─────────────────────────────────────────────────────────────
+
+interface WorkupOutput {
+  blockers:    CommandAction[];
+  tasks:       CommandAction[];
+  drafts:      CommandAction[];
+  suggestions: CommandAction[]; // recommended_actions only when no tasks created
+}
+
+const EMPTY_WORKUP: WorkupOutput = { blockers: [], tasks: [], drafts: [], suggestions: [] };
 
 function roleTone(role: string): Tone {
-  if (role === 'clinician')     return 'red';
-  if (role === 'billing')       return 'amber';
-  if (role === 'front_desk')    return 'sage';
+  if (role === 'clinician')  return 'red';
+  if (role === 'billing')    return 'amber';
+  if (role === 'front_desk') return 'sage';
   return 'cream';
 }
 
@@ -87,94 +96,96 @@ function priorityTone(p: string): Tone {
   return 'neutral';
 }
 
-function buildActionCards(data: BackofficeApiResponse): CommandAction[] {
-  const cards: CommandAction[] = [];
+function buildWorkupOutput(data: BackofficeApiResponse): WorkupOutput {
   const ts = Date.now();
+  const hasTasks = (data.created_items ?? []).some(i => i.type === 'task' && i.status === 'created');
 
-  // Blockers
-  for (const [i, b] of (data.blockers ?? []).entries()) {
+  const blockers: CommandAction[] = (data.blockers ?? []).map((b, i) => {
     const tone: Tone = b.severity === 'high' ? 'red' : b.severity === 'medium' ? 'amber' : 'sage';
-    cards.push({
+    return {
       id: `bl-${ts}-${i}`,
       iconKey: 'alert',
       tone,
-      title: b.description.slice(0, 70),
+      title: b.description.slice(0, 90),
       badges: [
         { label: `${b.severity.charAt(0).toUpperCase() + b.severity.slice(1)} severity`, tone },
-        { label: 'Blocker', tone: 'neutral' },
+        { label: b.type.replace(/_/g, ' '), tone: 'neutral' as Tone },
       ],
-      rows: [
-        { k: 'Type',    v: b.type.replace(/_/g, ' ') },
-        { k: 'Patient', v: data.patient_match ?? 'N/A' },
-      ],
-    });
-  }
+      rows: [{ k: 'Patient', v: data.patient_match ?? 'N/A' }],
+    };
+  });
 
-  // Recommended actions
-  for (const [i, a] of (data.recommended_actions ?? []).entries()) {
-    if (a.type === 'no_action') continue;
-    const iconKey = a.type === 'create_task' ? 'clipboard' : a.type.includes('draft') ? 'edit' : 'file';
-    cards.push({
-      id: `ra-${ts}-${i}`,
-      iconKey,
-      tone: roleTone(a.assigned_role),
-      title: a.title,
+  const tasks: CommandAction[] = (data.created_items ?? [])
+    .filter(item => item.type === 'task' && item.status === 'created')
+    .map((item, i) => ({
+      id: `ct-${ts}-${i}`,
+      iconKey: 'clipboard',
+      tone: 'forest' as Tone,
+      title: item.title,
       badges: [
-        { label: a.priority.charAt(0).toUpperCase() + a.priority.slice(1), tone: priorityTone(a.priority) },
-        { label: a.requires_approval ? 'Needs approval' : 'Auto', tone: a.requires_approval ? 'amber' : 'sage' },
+        { label: 'Task created',     tone: 'sage'   as Tone },
+        { label: 'Pending approval', tone: 'cream'  as Tone },
       ],
       rows: [
-        { k: 'Role', v: a.assigned_role.replace(/_/g, ' ') },
-        { k: 'Why',  v: a.description.slice(0, 60) },
+        { k: 'Created by', v: 'ClinicOps AI' },
+        { k: 'Patient',    v: data.patient_match ?? 'N/A' },
       ],
-    });
-  }
+    }));
 
-  // Drafts — check created_items to know if saved to DB
   const savedDraftTitles = new Set(
-    (data.created_items ?? [])
-      .filter(ci => ci.type === 'draft' && ci.status === 'saved')
-      .map(ci => ci.title),
+    (data.created_items ?? []).filter(ci => ci.type === 'draft' && ci.status === 'saved').map(ci => ci.title),
   );
-  for (const [i, d] of (data.drafts ?? []).entries()) {
+  const drafts: CommandAction[] = (data.drafts ?? []).map((d, i) => {
     const wasSaved = savedDraftTitles.has(d.title);
-    cards.push({
+    return {
       id: `dr-${ts}-${i}`,
       iconKey: 'file',
-      tone:    'sage',
+      tone:    'sage' as Tone,
       title:   d.title,
       badges: [
-        { label: wasSaved ? 'Draft saved' : 'Draft prepared', tone: wasSaved ? 'sage' : 'cream' },
-        { label: d.draft_type.replace(/_/g, ' '), tone: 'neutral' },
+        { label: wasSaved ? 'Draft saved' : 'Draft prepared', tone: (wasSaved ? 'sage' : 'cream') as Tone },
+        { label: d.draft_type.replace(/_/g, ' '), tone: 'neutral' as Tone },
       ],
       rows: [
         { k: 'Type',    v: d.draft_type.replace(/_/g, ' ') },
         { k: 'Patient', v: data.patient_match ?? 'N/A' },
       ],
-    });
-  }
+    };
+  });
 
-  // Created tasks
-  for (const [i, item] of (data.created_items ?? []).entries()) {
-    if (item.type === 'task' && item.status === 'created') {
-      cards.push({
-        id: `ct-${ts}-${i}`,
-        iconKey: 'clipboard',
-        tone:    'forest',
-        title:   item.title,
+  // Show recommended_actions only when the execution agent didn't create tasks from them
+  const suggestions: CommandAction[] = hasTasks ? [] : (data.recommended_actions ?? [])
+    .filter(a => a.type !== 'no_action')
+    .map((a, i) => {
+      const iconKey = a.type === 'create_task' ? 'clipboard' : a.type.includes('draft') ? 'edit' : 'file';
+      return {
+        id: `ra-${ts}-${i}`,
+        iconKey,
+        tone: roleTone(a.assigned_role),
+        title: a.title,
         badges: [
-          { label: 'Task created', tone: 'sage' },
-          { label: 'Pending approval', tone: 'cream' },
+          { label: a.priority.charAt(0).toUpperCase() + a.priority.slice(1), tone: priorityTone(a.priority) },
+          { label: a.requires_approval ? 'Needs approval' : 'Auto', tone: (a.requires_approval ? 'amber' : 'sage') as Tone },
         ],
         rows: [
-          { k: 'Created by', v: 'ClinicOps AI' },
-          { k: 'Patient',    v: data.patient_match ?? 'N/A' },
+          { k: 'Role', v: a.assigned_role.replace(/_/g, ' ') },
+          { k: 'Why',  v: a.description.slice(0, 60) },
         ],
-      });
-    }
-  }
+      };
+    });
 
-  return cards;
+  return { blockers, tasks, drafts, suggestions };
+}
+
+function workupSubtitle(w: WorkupOutput): string {
+  const parts: string[] = [];
+  if (w.blockers.length)    parts.push(`${w.blockers.length} blocker${w.blockers.length !== 1 ? 's' : ''} found`);
+  if (w.tasks.length)       parts.push(`${w.tasks.length} task${w.tasks.length !== 1 ? 's' : ''} created`);
+  if (w.drafts.length)      parts.push(`${w.drafts.length} draft${w.drafts.length !== 1 ? 's' : ''} saved`);
+  if (w.suggestions.length) parts.push(`${w.suggestions.length} suggestion${w.suggestions.length !== 1 ? 's' : ''}`);
+  const needsApproval = w.tasks.some(t => t.badges.some(b => b.label === 'Pending approval'));
+  if (needsApproval) parts.push('staff approval required');
+  return parts.length ? parts.join(' · ') : 'Run a command to see results';
 }
 
 const BO_CLEARED_KEY = 'clinicops_bo_cleared_at';
@@ -223,8 +234,8 @@ interface ExecutionRun {
 // ── Component ─────────────────────────────────────────────────────────────────
 
 export function BackOfficeCommandCenter() {
-  const [chat, setChat]       = useState<CommandChatMessage[]>(COMMAND_CHAT_SEED);
-  const [actions, setActions] = useState<CommandAction[]>(COMMAND_ACTIONS);
+  const [chat, setChat]     = useState<CommandChatMessage[]>(COMMAND_CHAT_SEED);
+  const [workup, setWorkup] = useState<WorkupOutput>(EMPTY_WORKUP);
   const [input, setInput]     = useState('');
   const [thinking, setThinking]         = useState(false);
   const [historyLoading, setHistoryLoading] = useState(true);
@@ -241,7 +252,7 @@ export function BackOfficeCommandCenter() {
     if (!window.confirm('Clear command history? The command center will reset to an empty state.')) return;
     localStorage.setItem(BO_CLEARED_KEY, new Date().toISOString());
     setChat([]);
-    setActions([]);
+    setWorkup(EMPTY_WORKUP);
   };
 
   // Load persisted history on mount
@@ -255,7 +266,7 @@ export function BackOfficeCommandCenter() {
       const json = await res.json() as { messages: DbChatMsg[] };
       if (json.messages && json.messages.length > 0) {
         setChat(json.messages.map(dbMsgToChat));
-        setActions([]);
+        setWorkup(EMPTY_WORKUP);
       }
     } catch {
       // Keep seed data on error — non-critical
@@ -356,11 +367,18 @@ export function BackOfficeCommandCenter() {
           patientConfirmation,
         }]);
 
-        const newCards = buildActionCards(data);
-        if (newCards.length > 0) {
-          setActions(prev => [...newCards, ...prev]);
-          flash(newCards.map(c => c.id));
-        }
+        const newWorkup = buildWorkupOutput(data);
+        setWorkup(prev => ({
+          blockers:    [...newWorkup.blockers,    ...prev.blockers],
+          tasks:       [...newWorkup.tasks,       ...prev.tasks],
+          drafts:      [...newWorkup.drafts,      ...prev.drafts],
+          suggestions: [...newWorkup.suggestions, ...prev.suggestions],
+        }));
+        const allNewIds = [
+          ...newWorkup.blockers, ...newWorkup.tasks,
+          ...newWorkup.drafts, ...newWorkup.suggestions,
+        ].map(c => c.id);
+        if (allNewIds.length) flash(allNewIds);
 
         // Collapse execution trace to summary
         const draftsCount = (data.created_items ?? []).filter(i => i.type === 'draft' && i.status === 'saved').length;
@@ -504,19 +522,45 @@ export function BackOfficeCommandCenter() {
           </div>
         </div>
 
-        {/* Generated actions */}
+        {/* Workup & tasks */}
         <div className="card">
           <div className="card-head">
             <div>
-              <h2>Generated actions</h2>
-              <div className="sub">{actions.length} items · created by ClinicOps · awaiting human approval where required</div>
+              <h2>Workup &amp; tasks</h2>
+              <div className="sub">{workupSubtitle(workup)}</div>
             </div>
             <Button variant="ghost" size="sm"><IconPlus size={13} /> Add manually</Button>
           </div>
-          <div className="card-body" style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-            {actions.map((a) => (
-              <ActionCard key={a.id} a={a} flash={flashIds.includes(a.id)} />
-            ))}
+          <div className="card-body" style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+            {workup.blockers.length === 0 && workup.tasks.length === 0 && workup.drafts.length === 0 && workup.suggestions.length === 0 && (
+              <div style={{ padding: '28px 0', textAlign: 'center', color: 'var(--fg3)', fontSize: 13 }}>
+                Run a command to see results here
+              </div>
+            )}
+            {workup.blockers.length > 0 && (
+              <section style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                <PanelSectionHeader label="Blockers found" />
+                {workup.blockers.map(a => <BlockerRow key={a.id} a={a} flash={flashIds.includes(a.id)} />)}
+              </section>
+            )}
+            {workup.tasks.length > 0 && (
+              <section style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                <PanelSectionHeader label="Tasks created" />
+                {workup.tasks.map(a => <ActionCard key={a.id} a={a} flash={flashIds.includes(a.id)} />)}
+              </section>
+            )}
+            {workup.drafts.length > 0 && (
+              <section style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                <PanelSectionHeader label="Drafts saved" />
+                {workup.drafts.map(a => <ActionCard key={a.id} a={a} flash={flashIds.includes(a.id)} />)}
+              </section>
+            )}
+            {workup.suggestions.length > 0 && (
+              <section style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                <PanelSectionHeader label="Suggested actions" />
+                {workup.suggestions.map(a => <ActionCard key={a.id} a={a} flash={flashIds.includes(a.id)} />)}
+              </section>
+            )}
           </div>
         </div>
       </div>
@@ -721,6 +765,47 @@ function CreatedItemsSummary({ items }: { items: BackofficeCreatedItemSummary[] 
     }}>
       <IconCheckCircle size={12} />
       {parts.join(' · ')}
+    </div>
+  );
+}
+
+// ── Panel section header ──────────────────────────────────────────────────────
+
+function PanelSectionHeader({ label }: { label: string }) {
+  return (
+    <div style={{
+      fontSize: 10.5,
+      fontWeight: 700,
+      letterSpacing: '0.07em',
+      textTransform: 'uppercase',
+      color: 'var(--fg3)',
+      paddingBottom: 6,
+      borderBottom: '1px solid var(--border-muted)',
+    }}>
+      {label}
+    </div>
+  );
+}
+
+// ── Blocker row (no action buttons — these are findings, not tasks) ────────────
+
+function BlockerRow({ a, flash }: { a: CommandAction; flash: boolean }) {
+  return (
+    <div className={`action-card${flash ? ' flash' : ''}`} style={{ padding: '10px 14px' }}>
+      <IconTile tone={a.tone} iconKey={a.iconKey} size="sm" />
+      <div className="body">
+        <div className="ac-head">
+          <span className="ac-title">{a.title}</span>
+          {a.badges.map((b, i) => (
+            <Badge key={i} tone={b.tone} dot={b.tone === 'red' || b.tone === 'amber'}>{b.label}</Badge>
+          ))}
+        </div>
+        <div className="ac-row">
+          {a.rows.map((r, i) => (
+            <span key={i}><span className="muted">{r.k}:</span> <span className="v">{r.v}</span></span>
+          ))}
+        </div>
+      </div>
     </div>
   );
 }
