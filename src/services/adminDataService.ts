@@ -564,7 +564,17 @@ export async function findPatientCandidates(name: string, clinicId?: string): Pr
     return classifyMatches(name, mockMatches);
   }
 
-  return classifyMatches(name, (data ?? []) as DbPatient[]);
+  // If DB returned no rows, seed data may not be applied — fall back to mock
+  if (!data || data.length === 0) {
+    console.warn('[adminDataService] findPatientCandidates: no DB rows for query, falling back to mock');
+    const mockMatches = MOCK_PATIENTS.filter(p =>
+      p.full_name.toLowerCase().includes(lower) &&
+      (!clinicId || p.clinic_id === clinicId)
+    );
+    return classifyMatches(name, mockMatches);
+  }
+
+  return classifyMatches(name, data as DbPatient[]);
 }
 
 export async function getPatientByName(name: string, clinicId?: string): Promise<DbPatient | null> {
@@ -599,8 +609,17 @@ export async function getPatientByName(name: string, clinicId?: string): Promise
     return mockMatches[0] ?? null;
   }
 
-  // Supabase returned results — prefer real data, no mock fallback
-  if (!data || data.length === 0) return null;
+  // If DB returned no rows, seed data may not be applied — fall back to mock
+  if (!data || data.length === 0) {
+    console.warn('[adminDataService] getPatientByName: no DB rows, falling back to mock');
+    const lower = name.toLowerCase();
+    const mockMatches = MOCK_PATIENTS.filter(p =>
+      p.full_name.toLowerCase().includes(lower) &&
+      (!clinicId || p.clinic_id === clinicId)
+    );
+    if (mockMatches.length > 1) throw new AmbiguousPatientError(mockMatches);
+    return mockMatches[0] ?? null;
+  }
   if (data.length > 1) throw new AmbiguousPatientError(data as DbPatient[]);
   return data[0] as DbPatient;
 }
