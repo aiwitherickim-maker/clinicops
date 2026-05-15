@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { CLINIC } from '@/data/mockClinic';
 import { SIM_CONVERSATIONS } from '@/data/mockMessages';
 import type { ChatMessage, WorkflowStep, ResponseType } from '@/types';
@@ -8,19 +8,69 @@ import { Badge, IconTile, ConfidenceMini, Dot } from './Primitives';
 import { IconSend, IconLayers } from './Icons';
 import { analyzePatientMessageAndPersist } from '@/services/agentService';
 
+interface PatientHistoryItem {
+  patientMessage: { text: string; t: string; patientName: string };
+  assistantMessage: { text: string; t: string; responseType: string; badgeText: string } | null;
+  workflow: WorkflowStep | null;
+}
+
 export function PatientChatSimulator() {
   const seed = SIM_CONVERSATIONS[0];
-  const [messages, setMessages] = useState<ChatMessage[]>(seed.initialMessages);
+  const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [workflow, setWorkflow] = useState<WorkflowStep>(seed.workflow);
   const [showWorkflow, setShowWorkflow] = useState(true);
   const [input, setInput] = useState('');
   const [running, setRunning] = useState(false);
+  const [historyLoading, setHistoryLoading] = useState(true);
   const [patientName, setPatientName] = useState('Simulator Patient');
   const scrollRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     if (scrollRef.current) scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
   }, [messages]);
+
+  const loadHistory = useCallback(async () => {
+    try {
+      const res = await fetch('/api/patient-chat-messages?clinicId=a0000000-0000-0000-0000-000000000001');
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const items = await res.json() as PatientHistoryItem[];
+
+      if (!items.length) {
+        setMessages(SIM_CONVERSATIONS[0].initialMessages);
+        return;
+      }
+
+      const msgs: ChatMessage[] = [];
+      let lastWorkflow: WorkflowStep | null = null;
+
+      for (const item of items) {
+        msgs.push({ who: 'patient', text: item.patientMessage.text, t: item.patientMessage.t });
+        if (item.assistantMessage) {
+          msgs.push({
+            who: 'assistant',
+            text: item.assistantMessage.text,
+            t: item.assistantMessage.t,
+            draft: true,
+            responseType: item.assistantMessage.responseType as ResponseType,
+            badgeText: item.assistantMessage.badgeText,
+          });
+        }
+        if (item.workflow) lastWorkflow = item.workflow;
+      }
+
+      setMessages(msgs);
+      if (lastWorkflow) setWorkflow(lastWorkflow);
+    } catch (err) {
+      console.error('[PatientChatSimulator] history load error:', err);
+      setMessages(SIM_CONVERSATIONS[0].initialMessages);
+    } finally {
+      setHistoryLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    loadHistory();
+  }, [loadHistory]);
 
   const runWorkflow = async () => {
     const userText = input.trim();
@@ -88,9 +138,15 @@ export function PatientChatSimulator() {
               <div style={{ alignSelf: 'center', fontSize: 11, color: 'var(--fg3)', padding: '2px 10px', background: 'var(--paper)', borderRadius: 999, border: '1px solid var(--border)' }}>
                 Today · Tuesday May 13
               </div>
-              {messages.map((m, i) => (
-                <ChatBubble key={i} m={m} />
-              ))}
+              {historyLoading ? (
+                <div style={{ alignSelf: 'center', display: 'flex', gap: 6, padding: '20px 0' }}>
+                  <Dot delay={0} /><Dot delay={120} /><Dot delay={240} />
+                </div>
+              ) : (
+                messages.map((m, i) => (
+                  <ChatBubble key={i} m={m} />
+                ))
+              )}
               {running && (
                 <div style={{ alignSelf: 'flex-start', display: 'flex', gap: 6, padding: '8px 14px', background: 'var(--paper)', border: '1px solid var(--border)', borderRadius: 16 }}>
                   <Dot delay={0} /><Dot delay={120} /><Dot delay={240} />
