@@ -4,7 +4,7 @@ import React, { useState, useEffect } from 'react';
 import { TASKS, TASK_FILTERS } from '@/data/mockTasks';
 import type { Task } from '@/types';
 import { Button, Badge, IconTile } from './Primitives';
-import { IconRefresh, IconPlus, IconFilter, IconChevronDown, IconClock, IconBot, IconShieldCheck } from './Icons';
+import { IconRefresh, IconClock, IconShieldCheck } from './Icons';
 import { getTaskList, updateTaskStatusById } from '@/services/clinicDataService';
 
 export function Tasks() {
@@ -23,9 +23,9 @@ export function Tasks() {
 
   const approve = (id: string) => {
     setTasks((list) =>
-      list.map((t) => t.id === id ? { ...t, status: 'Open', statusTone: 'neutral' } : t)
+      list.map((t) => t.id === id ? { ...t, status: 'Resolved', statusTone: 'sage' } : t)
     );
-    updateTaskStatusById(id, 'open');
+    updateTaskStatusById(id, 'resolved');
   };
 
   return (
@@ -37,7 +37,6 @@ export function Tasks() {
         </div>
         <div className="actions">
           <Button variant="secondary" size="sm"><IconRefresh size={14} /> Refresh</Button>
-          <Button variant="primary" size="sm"><IconPlus size={14} /> New task</Button>
         </div>
       </div>
 
@@ -61,10 +60,7 @@ export function Tasks() {
             );
           })}
         </div>
-        <div style={{ display: 'flex', gap: 8 }}>
-          <Button variant="ghost" size="sm"><IconFilter size={13} /> More filters</Button>
-          <Button variant="ghost" size="sm"><IconChevronDown size={13} /> Sort: Priority</Button>
-        </div>
+        <div />
       </div>
 
       {/* Table */}
@@ -78,12 +74,11 @@ export function Tasks() {
               <th>Priority</th>
               <th>Status</th>
               <th>Due</th>
-              <th style={{ textAlign: 'right' }}>AI created</th>
             </tr>
           </thead>
           <tbody>
             {filtered.length === 0 ? (
-              <tr><td colSpan={7} className="empty-state">No tasks match this filter.</td></tr>
+              <tr><td colSpan={6} className="empty-state">No tasks match this filter.</td></tr>
             ) : filtered.map((t) => (
               <TaskRow key={t.id} t={t} onApprove={() => approve(t.id)} />
             ))}
@@ -146,14 +141,6 @@ function TaskRow({ t, onApprove }: { t: Task; onApprove: () => void }) {
         }}>
           <IconClock size={12} /> {t.due}
         </span>
-      </td>
-      <td style={{ textAlign: 'right' }}>
-        {t.aiCreated && (
-          <span className="ai-flag">
-            <span className="av"><IconBot size={11} /></span>
-            Yes
-          </span>
-        )}
       </td>
     </tr>
   );
