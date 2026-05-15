@@ -12,7 +12,7 @@ import { ClinicSetup } from '@/components/ClinicSetup';
 import { INBOX } from '@/data/mockMessages';
 import { TASKS } from '@/data/mockTasks';
 import type { InboxMessage } from '@/types';
-import { getInboxMessages, resolveMessageWorkflow } from '@/services/clinicDataService';
+import { getInboxMessages } from '@/services/clinicDataService';
 
 type Section = 'dashboard' | 'chat' | 'inbox' | 'command' | 'drafts' | 'tasks' | 'setup';
 
@@ -29,9 +29,10 @@ export default function Home() {
   ).length;
   const taskCount = TASKS.filter((tk) => tk.status !== 'Resolved').length;
 
+  // The component handles the DB resolve + event log itself.
+  // This callback just syncs the parent's inbox count for the sidebar badge.
   const handleResolve = (msg: InboxMessage) => {
     setInbox((prev) => prev.filter((m) => m.id !== msg.id));
-    resolveMessageWorkflow(msg.id);
   };
 
   return (

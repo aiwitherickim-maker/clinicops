@@ -201,6 +201,27 @@ export interface DbBillingCase {
   updated_at: string;
 }
 
+export interface DbHumanReviewEvent {
+  id:                  string;
+  clinic_id:           string | null;
+  message_id:          string | null;
+  draft_id:            string | null;
+  task_id:             string | null;
+  staff_id:            string | null;
+  event_type:          string;
+  original_ai_text:    string | null;
+  final_text:          string | null;
+  diff:                Record<string, unknown>;
+  original_route:      string | null;
+  final_route:         string | null;
+  original_risk_level: string | null;
+  final_risk_level:    string | null;
+  feedback_tags:       string[];
+  staff_note:          string | null;
+  metadata:            Record<string, unknown>;
+  created_at:          string;
+}
+
 export interface DbBackofficeCommand {
   id: string;
   clinic_id: string;

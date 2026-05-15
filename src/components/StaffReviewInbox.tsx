@@ -1,7 +1,7 @@
 'use client';
 
-import React, { useState } from 'react';
-import type { InboxMessage } from '@/types';
+import React, { useState, useEffect, useRef } from 'react';
+import type { InboxMessage, Tone, Risk } from '@/types';
 import { Button, Badge, RiskPill, IconTile, Avatar, ConfidenceMini } from './Primitives';
 import {
   IconFilter, IconRefresh, IconClock, IconUser, IconFlag,
@@ -9,65 +9,185 @@ import {
 } from './Icons';
 import { generateStaffFollowupDraft } from '@/services/agentService';
 import type { StaffFollowupDraftClientResult } from '@/services/agentService';
+import {
+  approveMessageWorkflow,
+  editDraftWorkflow,
+  assignMessageWorkflow,
+  escalateMessageWorkflow,
+  resolveMessageWorkflowWithLog,
+} from '@/services/clinicDataService';
 
 interface StaffReviewInboxProps {
   inbox: InboxMessage[];
   onResolve?: (msg: InboxMessage) => void;
-  onAssign?: (msg: InboxMessage) => void;
+  onAssign?:  (msg: InboxMessage) => void;
 }
 
-type FilterKey = 'all' | 'high' | 'medium' | 'low';
+type FilterKey   = 'all' | 'high' | 'medium' | 'low';
+type ActionName  = 'approve' | 'edit_save' | 'assign' | 'escalate' | 'resolve';
 
 export function StaffReviewInbox({ inbox, onResolve, onAssign }: StaffReviewInboxProps) {
-  const [selectedId, setSelectedId] = useState<string>(inbox[0]?.id);
-  const [filter, setFilter] = useState<FilterKey>('all');
-  const [toast, setToast] = useState<{ text: string; tone: string } | null>(null);
-  const [staffDrafts, setStaffDrafts] = useState<Record<string, StaffFollowupDraftClientResult>>({});
-  const [regeneratingId, setRegeneratingId] = useState<string | null>(null);
+  // Maintain a local copy so we can update status/route after DB writes
+  const [localInbox, setLocalInbox] = useState<InboxMessage[]>(inbox);
+  useEffect(() => { setLocalInbox(inbox); }, [inbox]);
 
-  const filtered = inbox.filter((m) => {
+  const [selectedId, setSelectedId]         = useState<string>(inbox[0]?.id);
+  const [filter, setFilter]                 = useState<FilterKey>('all');
+  const [toast, setToast]                   = useState<{ text: string; isError: boolean } | null>(null);
+  const [staffDrafts, setStaffDrafts]       = useState<Record<string, StaffFollowupDraftClientResult>>({});
+  const [editedTexts, setEditedTexts]       = useState<Record<string, string>>({});
+  const [regeneratingId, setRegeneratingId] = useState<string | null>(null);
+  const [loadingActions, setLoadingActions] = useState<Record<string, ActionName>>({});
+  const [editingMsgId, setEditingMsgId]     = useState<string | null>(null);
+  const [editText, setEditText]             = useState('');
+  const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const filtered = localInbox.filter((m) => {
     if (filter === 'all')    return true;
     if (filter === 'high')   return m.risk === 'high';
     if (filter === 'medium') return m.risk === 'medium';
     if (filter === 'low')    return m.risk === 'low';
     return true;
   });
+  const selected = localInbox.find((m) => m.id === selectedId) || filtered[0];
 
-  const selected = inbox.find((m) => m.id === selectedId) || filtered[0];
+  const flashToast = (text: string, isError = false) => {
+    if (toastTimer.current) clearTimeout(toastTimer.current);
+    setToast({ text, isError });
+    toastTimer.current = setTimeout(() => setToast(null), isError ? 3500 : 2000);
+  };
 
-  const flashToast = (text: string) => {
-    setToast({ text, tone: 'sage' });
-    setTimeout(() => setToast(null), 1800);
+  const setActionBusy = (msgId: string, action: ActionName | null) => {
+    setLoadingActions(prev => {
+      if (action === null) { const n = { ...prev }; delete n[msgId]; return n; }
+      return { ...prev, [msgId]: action };
+    });
   };
 
   const handleRegenerate = async (msg: InboxMessage) => {
     setRegeneratingId(msg.id);
     try {
       const result = await generateStaffFollowupDraft({
-        messageText:   msg.message,
-        patientName:   msg.patient,
-        category:      msg.category,
-        riskLevel:     msg.risk,
-        routeTo:       msg.routeTo,
-        taskTitle:     msg.task.title,
-        taskAssignee:  msg.task.assignee,
-        reason:        msg.reason,
-        clinicPhone:   '(734) 555-0142',
+        messageText:  msg.message,
+        patientName:  msg.patient,
+        category:     msg.category,
+        riskLevel:    msg.risk,
+        routeTo:      msg.routeTo,
+        taskTitle:    msg.task.title,
+        taskAssignee: msg.task.assignee,
+        reason:       msg.reason,
+        clinicPhone:  '(734) 555-0142',
       });
-      setStaffDrafts((prev) => ({ ...prev, [msg.id]: result }));
+      setStaffDrafts(prev => ({ ...prev, [msg.id]: result }));
     } catch (err) {
-      console.error('[StaffReviewInbox] regenerate error:', err);
-      flashToast('Draft regeneration failed — try again.');
+      console.error('[StaffReviewInbox] regenerate:', err);
+      flashToast('Draft regeneration failed — try again.', true);
     } finally {
       setRegeneratingId(null);
     }
   };
 
+  const handleApprove = async (msg: InboxMessage) => {
+    if (loadingActions[msg.id]) return;
+    const draftText = editedTexts[msg.id] ?? staffDrafts[msg.id]?.draftText ?? msg.draft;
+    setActionBusy(msg.id, 'approve');
+    try {
+      const result = await approveMessageWorkflow(msg.id, draftText);
+      if (!result.success) throw new Error(result.error);
+      setLocalInbox(prev => prev.map(m =>
+        m.id === msg.id ? { ...m, status: 'Approved', statusTone: 'sage' as Tone } : m,
+      ));
+      flashToast('Draft approved — sent to send queue.');
+    } catch (err) {
+      console.error('[handleApprove]', err);
+      flashToast('Failed to approve draft. Please try again.', true);
+    } finally {
+      setActionBusy(msg.id, null);
+    }
+  };
+
+  const handleEditStart = (msg: InboxMessage) => {
+    const currentText = editedTexts[msg.id] ?? staffDrafts[msg.id]?.draftText ?? msg.draft;
+    setEditingMsgId(msg.id);
+    setEditText(currentText);
+  };
+
+  const handleEditSave = async (msg: InboxMessage) => {
+    if (loadingActions[msg.id] || !editText.trim()) return;
+    const originalText = staffDrafts[msg.id]?.draftText ?? msg.draft;
+    setActionBusy(msg.id, 'edit_save');
+    try {
+      const result = await editDraftWorkflow(msg.id, originalText, editText);
+      if (!result.success) throw new Error(result.error);
+      setEditedTexts(prev => ({ ...prev, [msg.id]: editText }));
+      setEditingMsgId(null);
+      flashToast('Draft saved.');
+    } catch (err) {
+      console.error('[handleEditSave]', err);
+      flashToast('Failed to save edit. Please try again.', true);
+    } finally {
+      setActionBusy(msg.id, null);
+    }
+  };
+
+  const handleAssign = async (msg: InboxMessage) => {
+    if (loadingActions[msg.id]) return;
+    setActionBusy(msg.id, 'assign');
+    try {
+      const result = await assignMessageWorkflow(msg.id, msg.routeTo, msg.routeTo);
+      if (!result.success) throw new Error(result.error);
+      onAssign && onAssign(msg);
+      flashToast(`Assigned to ${msg.routeTo}`);
+    } catch (err) {
+      console.error('[handleAssign]', err);
+      flashToast('Failed to assign. Please try again.', true);
+    } finally {
+      setActionBusy(msg.id, null);
+    }
+  };
+
+  const handleEscalate = async (msg: InboxMessage) => {
+    if (loadingActions[msg.id]) return;
+    setActionBusy(msg.id, 'escalate');
+    try {
+      const result = await escalateMessageWorkflow(msg.id, msg.patient, msg.routeTo, msg.risk);
+      if (!result.success) throw new Error(result.error);
+      setLocalInbox(prev => prev.map(m =>
+        m.id === msg.id
+          ? { ...m, risk: 'high' as Risk, routeTo: 'Clinician', status: 'Escalated', statusTone: 'red' as Tone }
+          : m,
+      ));
+      flashToast('Escalated to clinical lead.');
+    } catch (err) {
+      console.error('[handleEscalate]', err);
+      flashToast('Failed to escalate. Please try again.', true);
+    } finally {
+      setActionBusy(msg.id, null);
+    }
+  };
+
+  const handleResolve = async (msg: InboxMessage) => {
+    if (loadingActions[msg.id]) return;
+    setActionBusy(msg.id, 'resolve');
+    try {
+      const result = await resolveMessageWorkflowWithLog(msg.id);
+      if (!result.success) throw new Error(result.error);
+      setLocalInbox(prev => prev.filter(m => m.id !== msg.id));
+      onResolve && onResolve(msg);
+      flashToast('Marked resolved.');
+    } catch (err) {
+      console.error('[handleResolve]', err);
+      flashToast('Failed to resolve. Please try again.', true);
+    } finally {
+      setActionBusy(msg.id, null);
+    }
+  };
+
   const filterTabs: { key: FilterKey; label: string; count: number }[] = [
-    { key: 'all',    label: 'All',         count: inbox.length },
-    { key: 'high',   label: 'High risk',   count: inbox.filter(m => m.risk === 'high').length },
-    { key: 'medium', label: 'Medium risk', count: inbox.filter(m => m.risk === 'medium').length },
-    { key: 'low',    label: 'Low risk',    count: inbox.filter(m => m.risk === 'low').length },
+    { key: 'all',    label: 'All',         count: localInbox.length },
+    { key: 'high',   label: 'High risk',   count: localInbox.filter(m => m.risk === 'high').length },
+    { key: 'medium', label: 'Medium risk', count: localInbox.filter(m => m.risk === 'medium').length },
+    { key: 'low',    label: 'Low risk',    count: localInbox.filter(m => m.risk === 'low').length },
   ];
 
   return (
@@ -83,7 +203,6 @@ export function StaffReviewInbox({ inbox, onResolve, onAssign }: StaffReviewInbo
         </div>
       </div>
 
-      {/* Filter chips */}
       <div className="filter-bar">
         {filterTabs.map((f) => (
           <button key={f.key} className={`chip${filter === f.key ? ' is-active' : ''}`} onClick={() => setFilter(f.key)}>
@@ -93,7 +212,6 @@ export function StaffReviewInbox({ inbox, onResolve, onAssign }: StaffReviewInbo
       </div>
 
       <div className="split-list-detail">
-        {/* List */}
         <div className="card" style={{ position: 'sticky', top: 24 }}>
           <div className="card-head">
             <div>
@@ -103,26 +221,29 @@ export function StaffReviewInbox({ inbox, onResolve, onAssign }: StaffReviewInbo
           </div>
           <div className="card-body tight inbox-list">
             {filtered.map((m) => (
-              <InboxCard
-                key={m.id}
-                m={m}
-                selected={m.id === selected?.id}
-                onSelect={() => setSelectedId(m.id)}
-              />
+              <InboxCard key={m.id} m={m} selected={m.id === selected?.id} onSelect={() => setSelectedId(m.id)} />
             ))}
           </div>
         </div>
 
-        {/* Detail */}
         {selected && (
           <DetailPanel
             msg={selected}
             staffDraft={staffDrafts[selected.id] ?? null}
+            editedText={editedTexts[selected.id] ?? null}
             isRegenerating={regeneratingId === selected.id}
+            isEditing={editingMsgId === selected.id}
+            editText={editText}
+            loadingAction={loadingActions[selected.id] ?? null}
             onRegenerate={() => handleRegenerate(selected)}
-            onResolve={onResolve}
-            onAssign={onAssign}
-            flashToast={flashToast}
+            onEditStart={() => handleEditStart(selected)}
+            onEditChange={setEditText}
+            onEditSave={() => handleEditSave(selected)}
+            onEditCancel={() => setEditingMsgId(null)}
+            onApprove={() => handleApprove(selected)}
+            onAssign={() => handleAssign(selected)}
+            onEscalate={() => handleEscalate(selected)}
+            onResolve={() => handleResolve(selected)}
             toast={toast}
           />
         )}
@@ -131,15 +252,26 @@ export function StaffReviewInbox({ inbox, onResolve, onAssign }: StaffReviewInbo
   );
 }
 
+// ── DetailPanel ───────────────────────────────────────────────────────────────
+
 interface DetailPanelProps {
-  msg: InboxMessage;
-  staffDraft: StaffFollowupDraftClientResult | null;
-  isRegenerating: boolean;
-  onRegenerate: () => void;
-  onResolve?: (msg: InboxMessage) => void;
-  onAssign?: (msg: InboxMessage) => void;
-  flashToast: (text: string) => void;
-  toast: { text: string; tone: string } | null;
+  msg:              InboxMessage;
+  staffDraft:       StaffFollowupDraftClientResult | null;
+  editedText:       string | null;
+  isRegenerating:   boolean;
+  isEditing:        boolean;
+  editText:         string;
+  loadingAction:    ActionName | null;
+  onRegenerate:     () => void;
+  onEditStart:      () => void;
+  onEditChange:     (text: string) => void;
+  onEditSave:       () => void;
+  onEditCancel:     () => void;
+  onApprove:        () => void;
+  onAssign:         () => void;
+  onEscalate:       () => void;
+  onResolve:        () => void;
+  toast:            { text: string; isError: boolean } | null;
 }
 
 function formatPreparedFor(role: string | undefined, routeTo: string): string {
@@ -151,11 +283,17 @@ function formatPreparedFor(role: string | undefined, routeTo: string): string {
   return labels[r] ?? (r.charAt(0).toUpperCase() + r.slice(1));
 }
 
-function DetailPanel({ msg, staffDraft, isRegenerating, onRegenerate, onResolve, onAssign, flashToast, toast }: DetailPanelProps) {
-  const draftText = staffDraft?.draftText ?? msg.draft;
+function DetailPanel({
+  msg, staffDraft, editedText, isRegenerating,
+  isEditing, editText, loadingAction,
+  onRegenerate, onEditStart, onEditChange, onEditSave, onEditCancel,
+  onApprove, onAssign, onEscalate, onResolve, toast,
+}: DetailPanelProps) {
+  const effectiveDraftText   = editedText ?? staffDraft?.draftText ?? msg.draft;
   const requiresClinicianApproval = staffDraft?.requiresClinicianApproval ?? (msg.risk === 'high' && msg.routeTo === 'Clinician');
-  const missingInformation = staffDraft?.missingInformation ?? [];
-  const preparedFor = formatPreparedFor(staffDraft?.intendedSenderRole, msg.routeTo);
+  const missingInformation   = staffDraft?.missingInformation ?? [];
+  const preparedFor          = formatPreparedFor(staffDraft?.intendedSenderRole, msg.routeTo);
+  const isBusy               = loadingAction !== null;
 
   return (
     <div className="card" style={{ position: 'relative' }}>
@@ -223,11 +361,18 @@ function DetailPanel({ msg, staffDraft, isRegenerating, onRegenerate, onResolve,
           <div className="detail-draft" style={{ color: 'var(--fg3)', fontStyle: 'italic' }}>
             Generating staff follow-up draft…
           </div>
+        ) : isEditing ? (
+          <textarea
+            value={editText}
+            onChange={e => onEditChange(e.target.value)}
+            className="detail-draft"
+            style={{ width: '100%', resize: 'vertical', minHeight: 120, fontFamily: 'inherit', fontSize: 'inherit', lineHeight: 1.6 }}
+          />
         ) : (
-          <div className="detail-draft">{draftText}</div>
+          <div className="detail-draft">{effectiveDraftText}</div>
         )}
 
-        {missingInformation.length > 0 && (
+        {missingInformation.length > 0 && !isEditing && (
           <div style={{ marginTop: 8, padding: '8px 12px', background: 'var(--amber-soft)', borderRadius: 8, border: '1px solid var(--amber-border)' }}>
             <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--amber-ink)', marginBottom: 4, textTransform: 'uppercase', letterSpacing: '0.04em' }}>
               Missing information
@@ -239,15 +384,25 @@ function DetailPanel({ msg, staffDraft, isRegenerating, onRegenerate, onResolve,
         )}
 
         <div style={{ display: 'flex', gap: 6, marginTop: 10 }}>
-          <Button variant="ghost" size="sm"><IconEdit size={13} /> Edit draft</Button>
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={onRegenerate}
-            disabled={isRegenerating}
-          >
-            <IconRefresh size={13} /> {isRegenerating ? 'Generating…' : 'Regenerate'}
-          </Button>
+          {isEditing ? (
+            <>
+              <Button variant="primary" size="sm" onClick={onEditSave} disabled={loadingAction === 'edit_save'}>
+                {loadingAction === 'edit_save' ? 'Saving…' : 'Save edit'}
+              </Button>
+              <Button variant="ghost" size="sm" onClick={onEditCancel} disabled={loadingAction === 'edit_save'}>
+                Cancel
+              </Button>
+            </>
+          ) : (
+            <>
+              <Button variant="ghost" size="sm" onClick={onEditStart} disabled={isBusy}>
+                <IconEdit size={13} /> Edit draft
+              </Button>
+              <Button variant="ghost" size="sm" onClick={onRegenerate} disabled={isRegenerating || isBusy}>
+                <IconRefresh size={13} /> {isRegenerating ? 'Generating…' : 'Regenerate'}
+              </Button>
+            </>
+          )}
         </div>
       </div>
 
@@ -264,54 +419,52 @@ function DetailPanel({ msg, staffDraft, isRegenerating, onRegenerate, onResolve,
       </div>
 
       <div className="detail-actions">
-        <Button variant="ghost" size="sm" onClick={() => flashToast('Draft approved — sent to send queue.')}>
-          <IconCheckCircle size={14} /> Approve draft
+        <Button variant="ghost" size="sm" onClick={onApprove} disabled={isBusy}>
+          <IconCheckCircle size={14} />
+          {loadingAction === 'approve' ? 'Approving…' : 'Approve draft'}
         </Button>
-        <Button variant="ghost" size="sm">
+        <Button variant="ghost" size="sm" onClick={onEditStart} disabled={isBusy}>
           <IconEdit size={14} /> Edit draft
         </Button>
         <Button
           variant={msg.risk === 'high' ? 'sage' : 'secondary'}
           size="sm"
-          onClick={() => {
-            onAssign && onAssign(msg);
-            flashToast(`Assigned to ${msg.task.assignee}`);
-          }}
+          onClick={onAssign}
+          disabled={isBusy}
         >
-          <IconStethoscope size={14} /> Assign to {msg.routeTo}
+          <IconStethoscope size={14} />
+          {loadingAction === 'assign' ? 'Assigning…' : `Assign to ${msg.routeTo}`}
         </Button>
-        <Button variant="ghost" size="sm" onClick={() => flashToast('Escalated to clinical lead.')}>
-          <IconAlert size={14} /> Escalate
+        <Button variant="ghost" size="sm" onClick={onEscalate} disabled={isBusy}>
+          <IconAlert size={14} />
+          {loadingAction === 'escalate' ? 'Escalating…' : 'Escalate'}
         </Button>
         <div className="spacer" />
-        <Button
-          variant="secondary"
-          size="sm"
-          onClick={() => {
-            onResolve && onResolve(msg);
-            flashToast('Marked resolved.');
-          }}
-        >
-          Mark resolved
+        <Button variant="secondary" size="sm" onClick={onResolve} disabled={isBusy}>
+          {loadingAction === 'resolve' ? 'Resolving…' : 'Mark resolved'}
         </Button>
       </div>
 
       {toast && (
         <div style={{
           position: 'absolute', bottom: 78, right: 22,
-          background: 'var(--forest-ink)', color: 'white',
+          background: toast.isError ? '#B91C1C' : 'var(--forest-ink)',
+          color: 'white',
           padding: '10px 14px', borderRadius: 12,
           fontSize: 13, fontWeight: 600,
           boxShadow: 'var(--shadow-elevated)',
           display: 'flex', alignItems: 'center', gap: 8,
           animation: 'fadeIn 180ms ease',
         }}>
-          <IconCheckCircle size={14} /> {toast.text}
+          {toast.isError ? <IconAlert size={14} /> : <IconCheckCircle size={14} />}
+          {toast.text}
         </div>
       )}
     </div>
   );
 }
+
+// ── InboxCard ─────────────────────────────────────────────────────────────────
 
 function InboxCard({ m, selected, onSelect }: { m: InboxMessage; selected: boolean; onSelect: () => void }) {
   const avatarTone = m.iconTone === 'red' ? 'red' : m.iconTone === 'amber' ? 'amber' : 'sage';

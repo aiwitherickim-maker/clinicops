@@ -117,6 +117,27 @@ export async function assignTask(
   return data;
 }
 
+export async function updateTaskAssignedRole(
+  id: string,
+  assignedRole: string,
+): Promise<DbTask | null> {
+  if (!isSupabaseConfigured()) {
+    const task = MOCK_DB_TASKS.find(t => t.id === id);
+    return task ? { ...task, assigned_role: assignedRole } : null;
+  }
+
+  const sb = getSupabaseClient()!;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const { data, error } = await (sb.from('tasks') as any)
+    .update({ assigned_role: assignedRole })
+    .eq('id', id)
+    .select()
+    .single();
+
+  if (error) { console.error('[taskDbService] updateTaskAssignedRole:', error.message); return null; }
+  return data;
+}
+
 export async function createTaskFromMessage(
   clinicId: string,
   messageId: string,
