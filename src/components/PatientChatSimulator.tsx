@@ -19,7 +19,7 @@ interface PatientHistoryItem {
 export function PatientChatSimulator() {
   const seed = SIM_CONVERSATIONS[0];
   const [messages, setMessages] = useState<ChatMessage[]>([]);
-  const [workflow, setWorkflow] = useState<WorkflowStep>(seed.workflow);
+  const [workflow, setWorkflow] = useState<WorkflowStep | null>(seed.workflow);
   const [showWorkflow, setShowWorkflow] = useState(true);
   const [input, setInput] = useState('');
   const [running, setRunning] = useState(false);
@@ -32,11 +32,10 @@ export function PatientChatSimulator() {
   }, [messages]);
 
   const handleReset = () => {
-    if (!window.confirm('Reset chat? The default starter conversation will be restored.')) return;
-    const now = new Date().toISOString();
-    localStorage.setItem(CHAT_RESET_KEY, now);
-    setMessages(SIM_CONVERSATIONS[0].initialMessages);
-    setWorkflow(SIM_CONVERSATIONS[0].workflow);
+    if (!window.confirm('Reset chat? All messages will be cleared.')) return;
+    localStorage.setItem(CHAT_RESET_KEY, new Date().toISOString());
+    setMessages([]);
+    setWorkflow(null);
   };
 
   const loadHistory = useCallback(async () => {
@@ -49,7 +48,8 @@ export function PatientChatSimulator() {
       const items = await res.json() as PatientHistoryItem[];
 
       if (!items.length) {
-        setMessages(SIM_CONVERSATIONS[0].initialMessages);
+        // Only show seed conversation when there's no reset timestamp (first-ever load)
+        if (!after) setMessages(SIM_CONVERSATIONS[0].initialMessages);
         return;
       }
 
@@ -322,7 +322,7 @@ function SafetyAgentBadge({ wf }: { wf: WorkflowStep }) {
   return <Badge tone="green" dot>Auto-send allowed</Badge>;
 }
 
-function AgentWorkflowResult({ wf, visible, running }: { wf: WorkflowStep; visible: boolean; running: boolean }) {
+function AgentWorkflowResult({ wf, visible, running }: { wf: WorkflowStep | null; visible: boolean; running: boolean }) {
   return (
     <div className="card">
       <div className="card-head">
@@ -335,11 +335,17 @@ function AgentWorkflowResult({ wf, visible, running }: { wf: WorkflowStep; visib
         <Badge tone="sage" dot>Live</Badge>
       </div>
       <div className="card-body" style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
-          <WorkflowSummaryBadges wf={wf} />
-        </div>
+        {wf && (
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+            <WorkflowSummaryBadges wf={wf} />
+          </div>
+        )}
 
-        {(!visible || running) ? (
+        {!wf ? (
+          <div className="empty-state" style={{ minHeight: 380 }}>
+            <div style={{ fontSize: 13, color: 'var(--fg3)' }}>Send a patient message to see the agent workflow</div>
+          </div>
+        ) : (!visible || running) ? (
           <div className="empty-state" style={{ minHeight: 380 }}>
             <div style={{ display: 'inline-flex', gap: 6 }}>
               <Dot delay={0} /><Dot delay={120} /><Dot delay={240} />
