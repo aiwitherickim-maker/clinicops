@@ -102,24 +102,31 @@ export function PatientChatSimulator() {
     setShowWorkflow(false);
 
     try {
-      const result = await analyzePatientMessageAndPersist(userText, patientName);
+      const result = await analyzePatientMessageAndPersist(
+        userText,
+        patientName,
+        undefined,
+        // Append each log to the agent-trail message as it arrives
+        (log) => setMessages((m) => {
+          const last = m[m.length - 1];
+          if (last?.who !== 'agent-trail') return m;
+          return [...m.slice(0, -1), { ...last, stageLogs: [...(last.stageLogs ?? []), log] }];
+        }),
+      );
 
       setWorkflow(result.workflow);
-      // Replace pending trail (last item) with completed trail + assistant response
-      setMessages((m) => [
-        ...m.slice(0, -1),
-        { who: 'agent-trail' as const, text: '', t: time, stageLogs: result.stageLogs ?? [] },
-        {
-          who: 'assistant' as const,
-          text: result.draftText,
-          t: time,
-          draft: true,
-          responseType: result.responseType,
-          badgeText: result.badgeText,
-        },
-      ]);
+      // Trail already has all logs from streaming — just append the assistant response
+      setMessages((m) => [...m, {
+        who: 'assistant' as const,
+        text: result.draftText,
+        t: time,
+        draft: true,
+        responseType: result.responseType,
+        badgeText: result.badgeText,
+      }]);
     } catch (err) {
       console.error('[PatientChatSimulator] workflow error:', err);
+      // Remove the pending trail on error, show fallback
       setMessages((m) => [
         ...m.slice(0, -1),
         {
@@ -281,11 +288,15 @@ function ChatBubble({ m }: { m: ChatMessage }) {
 }
 
 function AgentTrailBubble({ logs, t }: { logs: StageLog[]; t: string }) {
-  const [expanded, setExpanded] = React.useState(false);
-  const isPending  = logs.length === 0;
+  // isDone once we see the terminal 'completed' or 'failed' stage
+  const isDone     = logs.some(l => l.stage === 'completed' || l.stage === 'failed');
   const hasFailure = logs.some(l => l.status === 'failed');
   const visible    = logs.filter(l => l.status !== 'skipped');
-  const statusText = isPending
+  // Collapsed by user — starts open while streaming, user can collapse after done
+  const [collapsed, setCollapsed] = React.useState(false);
+  const showBody   = !collapsed && visible.length > 0;
+
+  const statusText = !isDone
     ? 'Running workflow…'
     : hasFailure ? 'Completed with errors' : 'Workflow complete';
 
@@ -293,21 +304,14 @@ function AgentTrailBubble({ logs, t }: { logs: StageLog[]; t: string }) {
     <div style={{ alignSelf: 'flex-start', maxWidth: '88%', marginBottom: 2 }}>
       <div style={{ background: 'var(--shell)', border: '1px solid var(--border)', borderRadius: 12, overflow: 'hidden' }}>
 
-        {/* Header row — always visible */}
+        {/* Header — always visible */}
         <button
-          onClick={() => !isPending && setExpanded(e => !e)}
-          disabled={isPending}
+          onClick={() => isDone && setCollapsed(c => !c)}
+          disabled={!isDone}
           style={{
-            width: '100%',
-            display: 'flex',
-            alignItems: 'center',
-            gap: 5,
-            padding: '7px 12px',
-            background: 'none',
-            border: 'none',
-            cursor: isPending ? 'default' : 'pointer',
-            textAlign: 'left',
-            outline: 'none',
+            width: '100%', display: 'flex', alignItems: 'center', gap: 5,
+            padding: '7px 12px', background: 'none', border: 'none',
+            cursor: isDone ? 'pointer' : 'default', textAlign: 'left', outline: 'none',
           }}
         >
           <span style={{ fontSize: 10, fontWeight: 600, letterSpacing: '0.05em', textTransform: 'uppercase', color: 'var(--fg3)', flexShrink: 0 }}>
@@ -316,25 +320,25 @@ function AgentTrailBubble({ logs, t }: { logs: StageLog[]; t: string }) {
           <span style={{ fontSize: 10, color: 'var(--fg3)' }}>·</span>
           <span style={{
             fontSize: 10.5, flex: 1,
-            color: hasFailure ? 'var(--red-deep, #b91c1c)' : isPending ? 'var(--fg3)' : 'var(--sage-deep, #2d6a4f)',
+            color: hasFailure ? 'var(--red-deep, #b91c1c)' : !isDone ? 'var(--fg3)' : 'var(--sage-deep, #2d6a4f)',
           }}>
             {statusText}
           </span>
-          {isPending && (
+          {!isDone && (
             <span style={{ display: 'inline-flex', gap: 2, marginRight: 4 }}>
               <Dot delay={0} /><Dot delay={120} /><Dot delay={240} />
             </span>
           )}
-          {!isPending && (
+          {isDone && (
             <span style={{ fontSize: 9, color: 'var(--fg3)', marginRight: 6 }}>
-              {expanded ? '▲' : '▾'}
+              {collapsed ? '▾' : '▲'}
             </span>
           )}
           <span style={{ fontSize: 10, color: 'var(--fg3)', flexShrink: 0 }}>{t}</span>
         </button>
 
-        {/* Expanded log entries */}
-        {!isPending && expanded && (
+        {/* Log entries — auto-visible during streaming, collapsible after done */}
+        {showBody && (
           <div style={{ borderTop: '1px solid var(--border)', padding: '5px 12px 8px', display: 'flex', flexDirection: 'column', gap: 2 }}>
             {visible.map((log, i) => (
               <div key={i} style={{ display: 'flex', alignItems: 'baseline', gap: 5 }}>
@@ -344,10 +348,7 @@ function AgentTrailBubble({ logs, t }: { logs: StageLog[]; t: string }) {
                 }}>
                   {log.status === 'failed' ? '✗' : '✓'}
                 </span>
-                <span style={{
-                  fontSize: 11, lineHeight: 1.4,
-                  color: log.status === 'failed' ? 'var(--red-deep, #b91c1c)' : 'var(--fg2)',
-                }}>
+                <span style={{ fontSize: 11, lineHeight: 1.4, color: log.status === 'failed' ? 'var(--red-deep, #b91c1c)' : 'var(--fg2)' }}>
                   {log.label}
                   {log.details && (
                     <span style={{ color: 'var(--fg3)', fontSize: 10, marginLeft: 4 }}>· {log.details}</span>

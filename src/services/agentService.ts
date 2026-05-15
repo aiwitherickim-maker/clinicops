@@ -12,13 +12,14 @@ export interface AnalyzeResult {
 }
 
 // Calls the server-side API route which runs Intent + Safety agents via Claude.
-// clinicId defaults to the demo clinic from the seed.
+// Streams NDJSON: emits stage logs via onStageLog as they arrive, resolves with final result.
 export async function analyzePatientMessageAndPersist(
   messageText: string,
   patientName: string,
   clinicId = 'a0000000-0000-0000-0000-000000000001',
+  onStageLog?: (log: StageLog) => void,
 ): Promise<AnalyzeResult> {
-  console.log('[agentService] calling /api/analyze-message');
+  console.log('[agentService] calling /api/analyze-message (streaming)');
 
   const res = await fetch('/api/analyze-message', {
     method: 'POST',
@@ -26,15 +27,54 @@ export async function analyzePatientMessageAndPersist(
     body: JSON.stringify({ messageText, patientName, clinicId }),
   });
 
-  if (!res.ok) {
-    const err = await res.json().catch(() => ({}));
-    console.error('[agentService] API error:', res.status, err);
+  if (!res.ok || !res.body) {
     throw new Error(`analyze-message API returned ${res.status}`);
   }
 
-  const data = await res.json() as AnalyzeResult;
-  console.log('[agentService] API response:', data);
-  return data;
+  const reader  = res.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = '';
+  let result: AnalyzeResult | null = null;
+
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+
+      buffer += decoder.decode(value, { stream: true });
+      const lines = buffer.split('\n');
+      buffer = lines.pop() ?? '';
+
+      for (const line of lines) {
+        if (!line.trim()) continue;
+        try {
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          const event = JSON.parse(line) as { type: string; [key: string]: any };
+          if (event.type === 'stage_log') {
+            onStageLog?.(event.log as StageLog);
+          } else if (event.type === 'result') {
+            result = {
+              workflow:     event.workflow     as WorkflowStep,
+              draftText:    event.draftText    as string,
+              badgeText:    event.badgeText    as string,
+              responseType: event.responseType as ResponseType,
+              messageId:    event.messageId    as string | null,
+              stageLogs:    event.stageLogs    as StageLog[],
+            };
+          } else if (event.type === 'error') {
+            throw new Error(event.message as string);
+          }
+        } catch (parseErr) {
+          console.warn('[agentService] Failed to parse stream line:', line, parseErr);
+        }
+      }
+    }
+  } finally {
+    reader.releaseLock();
+  }
+
+  if (!result) throw new Error('No result received from workflow stream');
+  return result;
 }
 
 // ─── Staff follow-up draft ────────────────────────────────────────────────────

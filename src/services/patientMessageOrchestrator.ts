@@ -89,6 +89,7 @@ export async function runPatientMessageWorkflow(
   messageText: string,
   patientName: string,
   clinicId: string,
+  onStageLog?: (log: StageLog) => void,
 ): Promise<OrchestratorResult> {
   console.log('[orchestrator] starting workflow for:', patientName, '|', messageText.slice(0, 60));
 
@@ -98,7 +99,11 @@ export async function runPatientMessageWorkflow(
     label: string,
     status: StageLog['status'] = 'completed',
     details?: string,
-  ) => stageLogs.push({ stage, label, status, timestamp: new Date().toISOString(), details });
+  ) => {
+    const entry: StageLog = { stage, label, status, timestamp: new Date().toISOString(), details };
+    stageLogs.push(entry);
+    onStageLog?.(entry);
+  };
 
   log('message_received', 'Received patient message');
 

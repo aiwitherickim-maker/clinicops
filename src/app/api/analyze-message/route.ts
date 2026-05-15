@@ -1,49 +1,51 @@
 // POST /api/analyze-message
-// Server-side only. Runs the patient message workflow via Claude agents.
+// Server-side only. Streams workflow stage logs as NDJSON, then sends the final result.
 // Never exposes ANTHROPIC_API_KEY to the browser.
 
-import { NextRequest, NextResponse } from 'next/server';
+import { NextRequest } from 'next/server';
 import { runPatientMessageWorkflow } from '@/services/patientMessageOrchestrator';
 
-export interface AnalyzeMessageRequest {
-  messageText: string;
-  patientName: string;
-  clinicId: string;
-}
-
 export async function POST(req: NextRequest) {
-  try {
-    const body = await req.json() as AnalyzeMessageRequest;
-    const { messageText, patientName, clinicId } = body;
+  const body = await req.json();
+  const { messageText, patientName, clinicId } = body;
 
-    if (!messageText?.trim()) {
-      return NextResponse.json({ error: 'messageText is required' }, { status: 400 });
-    }
-
-    console.log('[api/analyze-message] received:', { patientName, clinicId, messageText: messageText.slice(0, 80) });
-
-    const result = await runPatientMessageWorkflow(
-      messageText.trim(),
-      patientName || 'Simulator Patient',
-      clinicId || 'a0000000-0000-0000-0000-000000000001',
-    );
-
-    console.log('[api/analyze-message] workflow complete | messageId:', result.messageId);
-
-    return NextResponse.json({
-      workflow:      result.workflow,
-      draftText:     result.draftText,
-      badgeText:     result.badgeText,
-      responseType:  result.responseType,
-      messageId:     result.messageId,
-      stageLogs:     result.stageLogs,
-    });
-
-  } catch (err) {
-    console.error('[api/analyze-message] unhandled error:', err);
-    return NextResponse.json(
-      { error: 'Internal server error', detail: String(err) },
-      { status: 500 },
+  if (!messageText?.trim()) {
+    return new Response(
+      JSON.stringify({ type: 'error', message: 'messageText is required' }) + '\n',
+      { status: 400, headers: { 'Content-Type': 'application/x-ndjson' } },
     );
   }
+
+  const encoder = new TextEncoder();
+
+  const stream = new ReadableStream({
+    async start(controller) {
+      const send = (data: object) => {
+        controller.enqueue(encoder.encode(JSON.stringify(data) + '\n'));
+      };
+
+      try {
+        const result = await runPatientMessageWorkflow(
+          messageText.trim(),
+          patientName || 'Simulator Patient',
+          clinicId  || 'a0000000-0000-0000-0000-000000000001',
+          (log) => send({ type: 'stage_log', log }),
+        );
+        send({ type: 'result', ...result });
+      } catch (err) {
+        console.error('[api/analyze-message] unhandled error:', err);
+        send({ type: 'error', message: String(err) });
+      }
+
+      controller.close();
+    },
+  });
+
+  return new Response(stream, {
+    headers: {
+      'Content-Type':  'application/x-ndjson',
+      'Cache-Control': 'no-cache, no-transform',
+      'X-Accel-Buffering': 'no',
+    },
+  });
 }
