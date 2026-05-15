@@ -9,12 +9,13 @@ export interface BackofficeCommandRequest {
   command: string;
   staffId?: string;
   clinicId?: string;
+  confirmedPatientName?: string;
 }
 
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json() as BackofficeCommandRequest;
-    const { command, staffId, clinicId } = body;
+    const { command, staffId, clinicId, confirmedPatientName } = body;
 
     if (!command?.trim()) {
       return NextResponse.json({ error: 'command is required' }, { status: 400 });
@@ -22,6 +23,7 @@ export async function POST(req: NextRequest) {
 
     console.log('[api/backoffice-command] received:', {
       command: command.slice(0, 120),
+      confirmedPatientName,
       staffId,
       clinicId,
     });
@@ -30,6 +32,7 @@ export async function POST(req: NextRequest) {
       command.trim(),
       clinicId || 'a0000000-0000-0000-0000-000000000001',
       staffId,
+      confirmedPatientName,
     );
 
     console.log('[api/backoffice-command] completed | type:', result.command_type, '| patient:', result.patient_match);

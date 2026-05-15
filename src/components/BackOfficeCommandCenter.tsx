@@ -2,7 +2,11 @@
 
 import React, { useState, useRef, useEffect } from 'react';
 import { COMMAND_CHAT_SEED, COMMAND_ACTIONS, COMMAND_QUICKS } from '@/data/mockMessages';
-import type { CommandChatMessage, CommandAction, StageLog, BackofficeBlockerSummary, BackofficeCreatedItemSummary } from '@/types';
+import type {
+  CommandChatMessage, CommandAction, StageLog,
+  BackofficeBlockerSummary, BackofficeCreatedItemSummary,
+  PatientCandidateInfo, PatientConfirmationData,
+} from '@/types';
 import type { Tone } from '@/types';
 import { Button, Badge, IconTile, Dot } from './Primitives';
 import {
@@ -15,6 +19,12 @@ import {
 interface BackofficeApiResponse {
   command_type: string;
   patient_match: string | null;
+  patient_match_info: {
+    status: 'matched' | 'needs_confirmation' | 'ambiguous' | 'not_found';
+    query: string;
+    selected_patient: { id: string; full_name: string } | null;
+    candidates: { id: string; full_name: string }[];
+  } | null;
   case_summary: {
     patient_name: string | null;
     appointment:  string | null;
@@ -146,6 +156,11 @@ export function BackOfficeCommandCenter() {
   const [input, setInput]     = useState('');
   const [thinking, setThinking] = useState(false);
   const [flashIds, setFlashIds] = useState<string[]>([]);
+  const [pendingConfirmation, setPendingConfirmation] = useState<{
+    originalCommand: string;
+    status: 'needs_confirmation' | 'ambiguous';
+    candidates: PatientCandidateInfo[];
+  } | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -159,18 +174,16 @@ export function BackOfficeCommandCenter() {
 
   const t = () => new Date().toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
 
-  const respondTo = async (text: string) => {
-    const msgTime = t();
-    setChat(c => [...c, { who: 'staff', text, t: msgTime }]);
+  const callBackofficeApi = async (command: string, confirmedPatientName?: string) => {
     setThinking(true);
-
     try {
       const res = await fetch('/api/backoffice-command', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          command:  text,
+          command,
           clinicId: 'a0000000-0000-0000-0000-000000000001',
+          confirmedPatientName,
         }),
       });
 
@@ -178,13 +191,33 @@ export function BackOfficeCommandCenter() {
 
       const data = await res.json() as BackofficeApiResponse;
 
+      const matchInfo = data.patient_match_info;
+      let patientConfirmation: PatientConfirmationData | undefined;
+
+      if (matchInfo && (matchInfo.status === 'needs_confirmation' || matchInfo.status === 'ambiguous')) {
+        patientConfirmation = {
+          status:          matchInfo.status,
+          query:           matchInfo.query,
+          candidates:      matchInfo.candidates,
+          originalCommand: command,
+        };
+        setPendingConfirmation({
+          originalCommand: command,
+          status:          matchInfo.status,
+          candidates:      matchInfo.candidates,
+        });
+      } else {
+        setPendingConfirmation(null);
+      }
+
       setChat(c => [...c, {
-        who:          'bot',
-        text:         data.assistant_response,
-        t:            t(),
-        stageLogs:    data.stage_logs,
-        blockers:     data.blockers,
-        createdItems: data.created_items,
+        who:                'bot',
+        text:               data.assistant_response,
+        t:                  t(),
+        stageLogs:          data.stage_logs,
+        blockers:           data.blockers,
+        createdItems:       data.created_items,
+        patientConfirmation,
       }]);
 
       const newCards = buildActionCards(data);
@@ -195,20 +228,44 @@ export function BackOfficeCommandCenter() {
 
     } catch (err) {
       console.error('[BackOfficeCommandCenter] API error:', err);
-      setChat(c => [...c, {
-        who:  'bot',
-        text: 'Something went wrong. Please try again.',
-        t:    t(),
-      }]);
+      setPendingConfirmation(null);
+      setChat(c => [...c, { who: 'bot', text: 'Something went wrong. Please try again.', t: t() }]);
     } finally {
       setThinking(false);
     }
   };
 
+  const respondTo = (text: string) => {
+    setChat(c => [...c, { who: 'staff', text, t: t() }]);
+    callBackofficeApi(text);
+  };
+
+  const confirmPatient = (patientFullName: string) => {
+    if (!pendingConfirmation) return;
+    const { originalCommand } = pendingConfirmation;
+    setPendingConfirmation(null);
+    setChat(c => [...c, { who: 'staff', text: `Use ${patientFullName}`, t: t() }]);
+    callBackofficeApi(originalCommand, patientFullName);
+  };
+
+  const cancelConfirmation = () => {
+    setPendingConfirmation(null);
+    setChat(c => [...c, { who: 'staff', text: 'Cancel', t: t() }]);
+  };
+
   const send = () => {
-    if (!input.trim()) return;
-    respondTo(input.trim());
+    if (!input.trim() || thinking) return;
+    const text = input.trim();
     setInput('');
+
+    if (pendingConfirmation?.status === 'needs_confirmation') {
+      if (/^(yes|yeah|yep|ok|okay|confirm|use )/i.test(text)) {
+        confirmPatient(pendingConfirmation.candidates[0].full_name);
+        return;
+      }
+    }
+
+    respondTo(text);
   };
 
   return (
@@ -243,7 +300,13 @@ export function BackOfficeCommandCenter() {
 
           <div className="ch-body" ref={scrollRef}>
             {chat.map((m, i) => (
-              <CmdMsg key={i} m={m} />
+              <CmdMsg
+                key={i}
+                m={m}
+                pendingConfirmation={pendingConfirmation}
+                onConfirmPatient={confirmPatient}
+                onCancelConfirmation={cancelConfirmation}
+              />
             ))}
             {thinking && (
               <div className="chat-msg bot">
@@ -306,8 +369,24 @@ export function BackOfficeCommandCenter() {
 
 // ── CmdMsg ────────────────────────────────────────────────────────────────────
 
-function CmdMsg({ m }: { m: CommandChatMessage }) {
+function CmdMsg({
+  m,
+  pendingConfirmation,
+  onConfirmPatient,
+  onCancelConfirmation,
+}: {
+  m: CommandChatMessage;
+  pendingConfirmation: { originalCommand: string; status: string; candidates: PatientCandidateInfo[] } | null;
+  onConfirmPatient: (name: string) => void;
+  onCancelConfirmation: () => void;
+}) {
   const isStaff = m.who === 'staff';
+  const showConfirmButtons =
+    !isStaff &&
+    m.patientConfirmation != null &&
+    pendingConfirmation != null &&
+    pendingConfirmation.originalCommand === m.patientConfirmation.originalCommand;
+
   return (
     <div className={`chat-msg ${isStaff ? 'staff' : 'bot'}`}>
       <div className="av">
@@ -324,6 +403,15 @@ function CmdMsg({ m }: { m: CommandChatMessage }) {
         {/* Main response text */}
         <div style={{ whiteSpace: 'pre-wrap', lineHeight: 1.6 }}>{m.text}</div>
 
+        {/* Patient confirmation buttons */}
+        {showConfirmButtons && (
+          <PatientConfirmationButtons
+            data={m.patientConfirmation!}
+            onConfirm={onConfirmPatient}
+            onCancel={onCancelConfirmation}
+          />
+        )}
+
         {/* Inline created-items summary */}
         {!isStaff && m.createdItems && m.createdItems.filter(i => i.status !== 'skipped').length > 0 && (
           <CreatedItemsSummary items={m.createdItems} />
@@ -337,6 +425,29 @@ function CmdMsg({ m }: { m: CommandChatMessage }) {
           </div>
         )}
       </div>
+    </div>
+  );
+}
+
+// ── Patient confirmation buttons ──────────────────────────────────────────────
+
+function PatientConfirmationButtons({
+  data,
+  onConfirm,
+  onCancel,
+}: {
+  data: PatientConfirmationData;
+  onConfirm: (name: string) => void;
+  onCancel: () => void;
+}) {
+  return (
+    <div style={{ marginTop: 12, display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+      {data.candidates.map(c => (
+        <Button key={c.id} variant="sage" size="sm" onClick={() => onConfirm(c.full_name)}>
+          Use {c.full_name}
+        </Button>
+      ))}
+      <Button variant="ghost" size="sm" onClick={onCancel}>Cancel</Button>
     </div>
   );
 }

@@ -13,9 +13,8 @@ import type { BackofficeBlocker, BackofficeRecommendedAction, BackofficeWorkupRe
 import type { BackofficeDraft, BackofficeCreatedItem } from './agents/backofficeExecutionAgent';
 import {
   getAdminCaseSummary,
-  getPatientByName,
+  findPatientCandidates,
   saveBackofficeCommand,
-  AmbiguousPatientError,
 } from './adminDataService';
 import type { AdminCaseSummary } from './adminDataService';
 import { createTask } from './db/taskDbService';
@@ -39,9 +38,17 @@ function makeLog(stage: string, label: string, status: StageLogStatus, details?:
 
 // ── Result shape ──────────────────────────────────────────────────────────────
 
+export interface PatientMatchInfo {
+  status: 'matched' | 'needs_confirmation' | 'ambiguous' | 'not_found';
+  query: string;
+  selected_patient: { id: string; full_name: string } | null;
+  candidates: { id: string; full_name: string }[];
+}
+
 export interface BackofficeCommandResult {
   command_type: string;
-  patient_match: string | null;
+  patient_match: string | null;        // short display string (patient name or query)
+  patient_match_info: PatientMatchInfo | null;  // structured match result for UI
   case_summary: {
     patient_name: string | null;
     appointment:  string | null;
@@ -103,12 +110,14 @@ export async function runBackofficeWorkflow(
   command: string,
   clinicId = 'a0000000-0000-0000-0000-000000000001',
   staffId?: string,
+  confirmedPatientName?: string,
 ): Promise<BackofficeCommandResult> {
   const logs: StageLog[] = [];
 
   const result: BackofficeCommandResult = {
     command_type:        'case_lookup',
     patient_match:       null,
+    patient_match_info:  null,
     case_summary:        { patient_name: null, appointment: null, insurance: null, procedure: null, prior_auth: null, billing_case: null },
     blockers:            [],
     recommended_actions: [],
@@ -141,30 +150,58 @@ export async function runBackofficeWorkflow(
     // ── 3. Patient lookup + data load ─────────────────────────────────────────
     let caseSummary: AdminCaseSummary | null = null;
 
-    if (parsedCommand.patient_name) {
-      logs.push(makeLog('patient_lookup_started', `Looking up ${parsedCommand.patient_name}`, 'started'));
+    const searchName = confirmedPatientName ?? parsedCommand.patient_name;
 
-      let patient = null;
-      try {
-        patient = await getPatientByName(parsedCommand.patient_name, clinicId);
-      } catch (e) {
-        if (e instanceof AmbiguousPatientError) {
-          const names = e.matches.map(p => p.full_name).join(', ');
-          logs.push(makeLog('patient_not_found', `Ambiguous name — ${e.matches.length} matches`, 'failed', names));
-          result.assistant_response = `The name "${parsedCommand.patient_name}" matches multiple patients: ${names}. Please use the full name.`;
-          result.audit_notes = 'Ambiguous patient name — workflow stopped.';
-          return result;
-        }
-        throw e;
+    if (searchName) {
+      logs.push(makeLog('patient_lookup_started',
+        confirmedPatientName ? `Using confirmed patient: ${confirmedPatientName}` : `Looking up: ${searchName}`,
+        'started'));
+
+      const matchResult = await findPatientCandidates(searchName, clinicId);
+      console.log('[backofficeOrchestrator] patient match:', matchResult.status, '| candidates:', matchResult.candidates.map(c => c.full_name));
+
+      result.patient_match_info = {
+        status:            matchResult.status,
+        query:             matchResult.query,
+        selected_patient:  matchResult.selected_patient ? { id: matchResult.selected_patient.id, full_name: matchResult.selected_patient.full_name } : null,
+        candidates:        matchResult.candidates.map(c => ({ id: c.id, full_name: c.full_name })),
+      };
+
+      // When user already confirmed, treat any single candidate as matched
+      const effectiveStatus = confirmedPatientName && matchResult.candidates.length >= 1
+        ? 'matched'
+        : matchResult.status;
+      const patient = effectiveStatus === 'matched'
+        ? (matchResult.selected_patient ?? matchResult.candidates[0])
+        : null;
+
+      if (effectiveStatus === 'needs_confirmation') {
+        const cand = matchResult.candidates[0];
+        logs.push(makeLog('patient_needs_confirmation', `Closest match: ${cand.full_name}`, 'completed'));
+        result.patient_match      = cand.full_name;
+        result.patient_match_info = { ...result.patient_match_info, status: 'needs_confirmation' };
+        result.assistant_response = `I found **${cand.full_name}** as the closest match. Should I use this patient?`;
+        result.audit_notes = 'Awaiting patient confirmation — no actions taken.';
+        return result;
       }
 
-      if (!patient) {
-        logs.push(makeLog('patient_not_found', `No patient found: "${parsedCommand.patient_name}"`, 'failed'));
-        result.assistant_response = `I couldn't find a patient matching "${parsedCommand.patient_name}". Please check the name and try again.`;
+      if (effectiveStatus === 'ambiguous') {
+        const names = matchResult.candidates.map(c => c.full_name).join(', ');
+        logs.push(makeLog('patient_ambiguous', `Multiple matches found`, 'failed', names));
+        result.patient_match      = searchName;
+        result.assistant_response = `I found multiple patients matching "${searchName}": ${names}. Which one should I use?`;
+        result.audit_notes = 'Ambiguous patient name — awaiting selection.';
+        return result;
+      }
+
+      if (effectiveStatus === 'not_found' || !patient) {
+        logs.push(makeLog('patient_not_found', `No patient found: "${searchName}"`, 'failed'));
+        result.assistant_response = `I couldn't find a patient matching "${searchName}". Please try using their full name.`;
         result.audit_notes = 'Patient not found — workflow stopped.';
         return result;
       }
 
+      result.patient_match = patient.full_name;
       logs.push(makeLog('patient_found', `Found ${patient.full_name}`, 'completed'));
 
       caseSummary = await getAdminCaseSummary(patient.id);

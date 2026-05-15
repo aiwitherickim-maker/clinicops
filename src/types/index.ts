@@ -144,6 +144,18 @@ export interface BackofficeCreatedItemSummary {
   status: 'created' | 'prepared' | 'skipped';
 }
 
+export interface PatientCandidateInfo {
+  id: string;
+  full_name: string;
+}
+
+export interface PatientConfirmationData {
+  status: 'needs_confirmation' | 'ambiguous';
+  query: string;
+  candidates: PatientCandidateInfo[];
+  originalCommand: string;
+}
+
 export interface CommandChatMessage {
   who: 'staff' | 'bot';
   text: string;
@@ -152,6 +164,7 @@ export interface CommandChatMessage {
   stageLogs?: StageLog[];
   blockers?: BackofficeBlockerSummary[];
   createdItems?: BackofficeCreatedItemSummary[];
+  patientConfirmation?: PatientConfirmationData;
 }
 
 export interface ActionBadge {

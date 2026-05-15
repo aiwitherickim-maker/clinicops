@@ -512,6 +512,61 @@ export class AmbiguousPatientError extends Error {
   }
 }
 
+// ── Patient matching ──────────────────────────────────────────────────────────
+
+export interface PatientMatchResult {
+  status: 'matched' | 'needs_confirmation' | 'ambiguous' | 'not_found';
+  query: string;
+  selected_patient: DbPatient | null;
+  candidates: DbPatient[];
+}
+
+function classifyMatches(query: string, candidates: DbPatient[]): PatientMatchResult {
+  if (candidates.length === 0) {
+    return { status: 'not_found', query, selected_patient: null, candidates: [] };
+  }
+  // Exact full-name match wins immediately
+  const exact = candidates.filter(p => p.full_name.toLowerCase() === query.toLowerCase());
+  if (exact.length === 1) {
+    return { status: 'matched', query, selected_patient: exact[0], candidates: exact };
+  }
+  if (candidates.length === 1) {
+    // Single partial match → ask for confirmation
+    return { status: 'needs_confirmation', query, selected_patient: null, candidates };
+  }
+  return { status: 'ambiguous', query, selected_patient: null, candidates };
+}
+
+export async function findPatientCandidates(name: string, clinicId?: string): Promise<PatientMatchResult> {
+  const lower = name.toLowerCase();
+
+  if (!isSupabaseConfigured()) {
+    const matches = MOCK_PATIENTS.filter(p =>
+      p.full_name.toLowerCase().includes(lower) &&
+      (!clinicId || p.clinic_id === clinicId)
+    );
+    return classifyMatches(name, matches);
+  }
+
+  const sb = getSupabaseClient()!;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  let query = (sb.from('patients') as any).select('*').ilike('full_name', `%${name}%`);
+  if (clinicId) query = query.eq('clinic_id', clinicId);
+  const { data, error } = await query.limit(5);
+
+  if (error) {
+    // Table may not exist yet (migration pending) — fall back to mock
+    console.warn('[adminDataService] findPatientCandidates DB error:', error.message, '— falling back to mock');
+    const mockMatches = MOCK_PATIENTS.filter(p =>
+      p.full_name.toLowerCase().includes(lower) &&
+      (!clinicId || p.clinic_id === clinicId)
+    );
+    return classifyMatches(name, mockMatches);
+  }
+
+  return classifyMatches(name, (data ?? []) as DbPatient[]);
+}
+
 export async function getPatientByName(name: string, clinicId?: string): Promise<DbPatient | null> {
   if (!isSupabaseConfigured()) {
     // Mock mode: partial match, throw on ambiguity
