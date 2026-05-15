@@ -506,28 +506,48 @@ export async function getPatients(clinicId?: string): Promise<DbPatient[]> {
   return data ?? MOCK_PATIENTS;
 }
 
+export class AmbiguousPatientError extends Error {
+  constructor(public matches: DbPatient[]) {
+    super(`Ambiguous name — ${matches.length} patients match: ${matches.map(p => p.full_name).join(', ')}`);
+  }
+}
+
 export async function getPatientByName(name: string, clinicId?: string): Promise<DbPatient | null> {
-  const mockFallback = () => {
+  if (!isSupabaseConfigured()) {
+    // Mock mode: partial match, throw on ambiguity
     const lower = name.toLowerCase();
-    return MOCK_PATIENTS.find(p =>
+    const matches = MOCK_PATIENTS.filter(p =>
       p.full_name.toLowerCase().includes(lower) &&
       (!clinicId || p.clinic_id === clinicId)
-    ) ?? null;
-  };
-
-  if (!isSupabaseConfigured()) return mockFallback();
+    );
+    if (matches.length > 1) throw new AmbiguousPatientError(matches);
+    return matches[0] ?? null;
+  }
 
   const sb = getSupabaseClient()!;
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   let query = (sb.from('patients') as any).select('*').ilike('full_name', `%${name}%`);
   if (clinicId) query = query.eq('clinic_id', clinicId);
-  const { data, error } = await query.limit(1).single();
+
+  // Use limit(5) — no .single() so partial names don't error
+  const { data, error } = await query.limit(5);
 
   if (error) {
-    console.warn('[adminDataService] getPatientByName:', error.message, '— using mock fallback');
-    return mockFallback();
+    // DB error (e.g. table not yet migrated) — fall back to mock data
+    console.warn('[adminDataService] getPatientByName DB error:', error.message, '— falling back to mock');
+    const lower = name.toLowerCase();
+    const mockMatches = MOCK_PATIENTS.filter(p =>
+      p.full_name.toLowerCase().includes(lower) &&
+      (!clinicId || p.clinic_id === clinicId)
+    );
+    if (mockMatches.length > 1) throw new AmbiguousPatientError(mockMatches);
+    return mockMatches[0] ?? null;
   }
-  return data;
+
+  // Supabase returned results — prefer real data, no mock fallback
+  if (!data || data.length === 0) return null;
+  if (data.length > 1) throw new AmbiguousPatientError(data as DbPatient[]);
+  return data[0] as DbPatient;
 }
 
 export async function getAppointments(clinicId?: string): Promise<DbAppointment[]> {

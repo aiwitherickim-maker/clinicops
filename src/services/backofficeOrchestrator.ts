@@ -15,6 +15,7 @@ import {
   getAdminCaseSummary,
   getPatientByName,
   saveBackofficeCommand,
+  AmbiguousPatientError,
 } from './adminDataService';
 import type { AdminCaseSummary } from './adminDataService';
 import { createTask } from './db/taskDbService';
@@ -143,7 +144,19 @@ export async function runBackofficeWorkflow(
     if (parsedCommand.patient_name) {
       logs.push(makeLog('patient_lookup_started', `Looking up ${parsedCommand.patient_name}`, 'started'));
 
-      const patient = await getPatientByName(parsedCommand.patient_name, clinicId);
+      let patient = null;
+      try {
+        patient = await getPatientByName(parsedCommand.patient_name, clinicId);
+      } catch (e) {
+        if (e instanceof AmbiguousPatientError) {
+          const names = e.matches.map(p => p.full_name).join(', ');
+          logs.push(makeLog('patient_not_found', `Ambiguous name — ${e.matches.length} matches`, 'failed', names));
+          result.assistant_response = `The name "${parsedCommand.patient_name}" matches multiple patients: ${names}. Please use the full name.`;
+          result.audit_notes = 'Ambiguous patient name — workflow stopped.';
+          return result;
+        }
+        throw e;
+      }
 
       if (!patient) {
         logs.push(makeLog('patient_not_found', `No patient found: "${parsedCommand.patient_name}"`, 'failed'));
@@ -177,6 +190,13 @@ export async function runBackofficeWorkflow(
     if (caseSummary) {
       workup = await runBackofficeWorkupAgent(parsedCommand, caseSummary);
       console.log('[backofficeOrchestrator] workup blockers:', JSON.stringify(workup.blockers));
+
+      if (workup.failed) {
+        logs.push(makeLog('workup_failed', 'Case workup failed — execution skipped', 'failed'));
+        result.assistant_response = "I couldn't complete the case workup, so I did not create tasks or make any changes. Please try again.";
+        result.audit_notes = 'Workup agent failed to return valid output — execution skipped for safety. No tasks or status updates were applied.';
+        return result;
+      }
 
       if (workup.blockers.length > 0) {
         const blockerNames = workup.blockers.map(b => b.type.replace(/_/g, ' ')).join(', ');
@@ -257,22 +277,23 @@ export async function runBackofficeWorkflow(
     result.created_items = createdItems.length ? createdItems : (execution.created_items ?? []);
 
     // ── 7. Save command record ────────────────────────────────────────────────
-    try {
-      await saveBackofficeCommand({
-        clinicId,
-        staffId,
-        commandText:  command,
-        commandType:  parsedCommand.command_type,
-        result: {
-          patient_match:    parsedCommand.patient_name,
-          blockers_count:   workup.blockers.length,
-          tasks_created:    createdItems.filter(i => i.type === 'task' && i.status === 'created').length,
-          drafts_prepared:  (execution.drafts ?? []).length,
-        },
-      });
+    const saved = await saveBackofficeCommand({
+      clinicId,
+      staffId,
+      commandText:  command,
+      commandType:  parsedCommand.command_type,
+      result: {
+        patient_match:    parsedCommand.patient_name,
+        blockers_count:   workup.blockers.length,
+        tasks_created:    createdItems.filter(i => i.type === 'task' && i.status === 'created').length,
+        drafts_prepared:  (execution.drafts ?? []).length,
+      },
+    });
+    if (saved) {
       console.log('[backofficeOrchestrator] command record saved');
-    } catch (e) {
-      console.warn('[backofficeOrchestrator] saveBackofficeCommand failed (non-fatal):', e);
+    } else {
+      console.error('[backofficeOrchestrator] saveBackofficeCommand returned null — RLS policy or DB error prevented audit log save');
+      result.audit_notes = (result.audit_notes ?? '') + ' Command audit log save failed (RLS or DB error) — workflow output was not affected.';
     }
 
     logs.push(makeLog('completed', 'Workflow completed', 'completed'));

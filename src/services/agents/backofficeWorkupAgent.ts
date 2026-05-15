@@ -25,6 +25,7 @@ export interface BackofficeWorkupResult {
   blockers: BackofficeBlocker[];
   recommended_actions: BackofficeRecommendedAction[];
   case_narrative: string;
+  failed?: true;  // set when the agent/parse failed — orchestrator must gate execution on this
 }
 
 const FALLBACK_WORKUP: BackofficeWorkupResult = {
@@ -33,58 +34,43 @@ const FALLBACK_WORKUP: BackofficeWorkupResult = {
   case_narrative: 'Unable to complete workup — please review the case manually.',
 };
 
+const FAILED_WORKUP: BackofficeWorkupResult = {
+  blockers: [],
+  recommended_actions: [],
+  case_narrative: '',
+  failed: true,
+};
+
 const SYSTEM_PROMPT = `You are a clinic back-office operations analyst.
-You will receive structured data about a patient's billing and prior authorization case.
-Identify blockers and recommend next actions.
+Analyze the patient case data. Return ONLY the JSON object — no markdown fences, no preamble, no explanation, no trailing text.
 
-Return ONLY valid JSON — no markdown fences, no explanation.
+BLOCKER TYPES (use exactly one of these strings):
+  benefits_not_verified | prior_auth_not_started | missing_documentation | financial_clearance_blocked | other
 
-Blocker types:
-  benefits_not_verified       — insurance benefits have not been confirmed with the payer
-  prior_auth_not_started      — PA is required for this procedure but has not been initiated
-  missing_documentation       — required documents are absent (clinical notes, referrals, imaging)
-  financial_clearance_blocked — the billing case is not cleared to proceed
-  other                       — any other material blocker
+SEVERITY: "high" | "medium" | "low"
 
-Severity:
-  high   — blocks care delivery or creates significant financial/clinical risk; immediate action needed
-  medium — creates risk if not addressed soon; action needed this week
-  low    — minor issue; can be addressed in normal workflow
+ACTION TYPES (use exactly one of these strings):
+  create_task | draft_payer_script | draft_patient_update | update_status | no_action
 
-Action types:
-  create_task          — create an internal staff task
-  draft_payer_script   — write a phone script for calling the payer
-  draft_patient_update — write a patient-facing update message
-  update_status        — update a status field in the system
-  no_action            — nothing actionable at this time
+ASSIGNED ROLE (use exactly one of these strings):
+  billing | front_desk | clinician | office_manager
 
-CRITICAL accuracy rules:
-  1. Never claim benefits are verified unless benefits_status = "verified" in the data
-  2. Never claim prior auth is approved unless prior_authorization.status = "approved"
-  3. Never claim financial clearance unless financial_clearance_status = "cleared"
-  4. Reference real values from the data (payer name, procedure, dates, amounts)
-  5. If the procedure requires_prior_auth = true and PA status = "not_started", that is a blocker
+ACCURACY RULES — never violate:
+  1. benefits_status must equal "verified" in data before calling benefits verified
+  2. prior_auth.status must equal "approved" before calling PA approved
+  3. financial_clearance_status must equal "cleared" before calling case cleared
+  4. If requires_prior_auth=true and PA status="not_started" → blocker type "prior_auth_not_started"
+  5. Keep ALL string values under 100 characters — longer values break JSON parsing
 
-Return this exact shape:
+RETURN EXACTLY THIS SHAPE — no extra fields, no comments:
 {
   "blockers": [
-    {
-      "type": "<blocker_type>",
-      "severity": "low | medium | high",
-      "description": "<specific, referencing real data from the case>"
-    }
+    { "type": "benefits_not_verified", "severity": "high", "description": "Blue Cross benefits unverified for retinal surgery" }
   ],
   "recommended_actions": [
-    {
-      "type": "<action_type>",
-      "title": "<short action title>",
-      "description": "<what to do and why, 1–2 sentences>",
-      "assigned_role": "billing | front_desk | clinician | office_manager",
-      "priority": "low | medium | high | urgent",
-      "requires_approval": true
-    }
+    { "type": "create_task", "title": "Verify Blue Cross benefits", "description": "Call payer to verify benefits before surgery.", "assigned_role": "billing", "priority": "urgent", "requires_approval": true }
   ],
-  "case_narrative": "<2–3 sentence plain-English summary of case status and what must happen>"
+  "case_narrative": "Two sentence summary. Keep under 200 characters total."
 }`;
 
 export async function runBackofficeWorkupAgent(
@@ -120,7 +106,8 @@ ${JSON.stringify(caseSummary, null, 2)}`;
     console.log('[backofficeWorkupAgent] blockers:', parsed.blockers?.length, '| actions:', parsed.recommended_actions?.length);
     return parsed;
   } catch (err) {
-    console.error('[backofficeWorkupAgent] error:', err, '| raw:', raw.slice(0, 200));
-    return FALLBACK_WORKUP;
+    console.error('[backofficeWorkupAgent] FAILED — parse or API error:', err instanceof Error ? err.message : err);
+    console.error('[backofficeWorkupAgent] raw that failed to parse:', raw.slice(0, 400));
+    return FAILED_WORKUP;
   }
 }
