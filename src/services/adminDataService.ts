@@ -8,6 +8,7 @@ import type {
   DbPriorAuthorization,
   DbBillingCase,
   DbBackofficeCommand,
+  DbBackofficeDraft,
   DbTask,
   PriorAuthStatus,
   BillingCaseStatus,
@@ -1007,3 +1008,203 @@ export async function saveBackofficeCommand(input: {
   if (error) { console.error('[adminDataService] saveBackofficeCommand:', error.message); return null; }
   return data;
 }
+
+// ── Backoffice Drafts ─────────────────────────────────────────────────────────
+
+const CLINIC_ID_CONST = 'a0000000-0000-0000-0000-000000000001';
+
+const MOCK_DRAFTS: DbBackofficeDraft[] = [
+  {
+    id: 'draft-mock-001',
+    clinic_id: CLINIC_ID_CONST,
+    patient_id: 'a1000000-0000-0000-0000-000000000003',
+    appointment_id: 'a2000000-0000-0000-0000-000000000003',
+    procedure_id: 'a4000000-0000-0000-0000-000000000003',
+    prior_auth_id: 'a5000000-0000-0000-0000-000000000003',
+    billing_case_id: 'a6000000-0000-0000-0000-000000000003',
+    task_id: null,
+    command_id: null,
+    draft_type: 'payer_call_script',
+    title: 'Payer Call Script: Blue Cross Blue Shield — Urgent PA Initiation & Benefits Verification for Alicia Reed',
+    content: `PAYER CALL SCRIPT — URGENT PRIOR AUTHORIZATION
+Patient: Alicia Reed | DOB: 04/12/1978
+Payer: Blue Cross Blue Shield | Member ID: (verify during call)
+Procedure: Vitreoretinal Surgery (CPT 67108)
+
+OPENING
+"Hello, this is [Name] calling from [Clinic Name]. I am calling to initiate an urgent prior authorization request and verify benefits for one of our patients. May I speak with your prior authorization department?"
+
+PATIENT VERIFICATION
+Provide: Full name, DOB, Member ID, Group number
+Ask: "Can you confirm the patient's current eligibility status?"
+
+PRIOR AUTHORIZATION REQUEST
+"We are requesting urgent prior authorization for CPT 67108 — Vitreoretinal Surgery. The procedure is scheduled for [DATE]. This is time-sensitive due to the patient's condition."
+Ask: "What is the estimated turnaround time for an urgent PA review?"
+Ask: "What is the reference number for this PA request?"
+
+BENEFITS VERIFICATION CHECKLIST
+□ In-network vs out-of-network benefits
+□ Annual deductible (amount met/remaining)
+□ Out-of-pocket maximum
+□ Coinsurance/copay for surgical procedures
+□ Pre-certification requirements
+□ Documentation requirements for PA submission
+
+DOCUMENTATION LOG
+Reference #: _____________
+Rep Name: _____________
+Call Date/Time: _____________
+Notes: _____________
+
+CLOSING
+"Thank you. I will ensure all required documentation is submitted within [X] business days. Please confirm the fax number for PA submissions."`,
+    intended_audience: 'internal',
+    intended_sender_role: 'billing',
+    status: 'ready_for_review',
+    created_by_agent: true,
+    metadata: { patient_name: 'Alicia Reed', blockers: ['prior_auth_not_started', 'benefits_not_verified'] },
+    created_at: new Date(Date.now() - 1000 * 60 * 15).toISOString(),
+    updated_at: new Date(Date.now() - 1000 * 60 * 15).toISOString(),
+  },
+];
+
+export interface CreateBackofficeDraftInput {
+  clinicId: string;
+  patientId?: string | null;
+  appointmentId?: string | null;
+  procedureId?: string | null;
+  priorAuthId?: string | null;
+  billingCaseId?: string | null;
+  taskId?: string | null;
+  commandId?: string | null;
+  draftType: string;
+  title: string;
+  content: string;
+  intendedAudience?: string;
+  intendedSenderRole?: string | null;
+  metadata?: Record<string, unknown>;
+}
+
+export async function createBackofficeDraft(input: CreateBackofficeDraftInput): Promise<DbBackofficeDraft | null> {
+  if (!isSupabaseConfigured()) {
+    const mock: DbBackofficeDraft = {
+      id: `draft-mock-${Date.now()}`,
+      clinic_id:            input.clinicId,
+      patient_id:           input.patientId ?? null,
+      appointment_id:       input.appointmentId ?? null,
+      procedure_id:         input.procedureId ?? null,
+      prior_auth_id:        input.priorAuthId ?? null,
+      billing_case_id:      input.billingCaseId ?? null,
+      task_id:              input.taskId ?? null,
+      command_id:           input.commandId ?? null,
+      draft_type:           input.draftType,
+      title:                input.title,
+      content:              input.content,
+      intended_audience:    input.intendedAudience ?? 'internal',
+      intended_sender_role: input.intendedSenderRole ?? null,
+      status:               'ready_for_review',
+      created_by_agent:     true,
+      metadata:             input.metadata ?? {},
+      created_at:           new Date().toISOString(),
+      updated_at:           new Date().toISOString(),
+    };
+    MOCK_DRAFTS.unshift(mock);
+    return mock;
+  }
+
+  const sb = getSupabaseClient()!;
+  const payload = {
+    clinic_id:            input.clinicId,
+    patient_id:           input.patientId ?? null,
+    appointment_id:       input.appointmentId ?? null,
+    procedure_id:         input.procedureId ?? null,
+    prior_auth_id:        input.priorAuthId ?? null,
+    billing_case_id:      input.billingCaseId ?? null,
+    task_id:              input.taskId ?? null,
+    command_id:           input.commandId ?? null,
+    draft_type:           input.draftType,
+    title:                input.title,
+    content:              input.content,
+    intended_audience:    input.intendedAudience ?? 'internal',
+    intended_sender_role: input.intendedSenderRole ?? null,
+    status:               'ready_for_review',
+    created_by_agent:     true,
+    metadata:             input.metadata ?? {},
+  };
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const { data, error } = await (sb.from('backoffice_drafts') as any).insert(payload).select().single();
+  if (error) { console.error('[adminDataService] createBackofficeDraft:', error.message); return null; }
+  return data;
+}
+
+export async function getBackofficeDrafts(filters?: {
+  clinicId?: string;
+  patientId?: string;
+  status?: string;
+  limit?: number;
+}): Promise<DbBackofficeDraft[]> {
+  if (!isSupabaseConfigured()) {
+    let results = [...MOCK_DRAFTS];
+    if (filters?.clinicId) results = results.filter(d => d.clinic_id === filters.clinicId);
+    if (filters?.patientId) results = results.filter(d => d.patient_id === filters.patientId);
+    if (filters?.status)    results = results.filter(d => d.status === filters.status);
+    return results.slice(0, filters?.limit ?? 50);
+  }
+
+  const sb = getSupabaseClient()!;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  let query = (sb.from('backoffice_drafts') as any)
+    .select('*')
+    .order('created_at', { ascending: false });
+  if (filters?.clinicId)  query = query.eq('clinic_id', filters.clinicId);
+  if (filters?.patientId) query = query.eq('patient_id', filters.patientId);
+  if (filters?.status)    query = query.eq('status', filters.status);
+  query = query.limit(filters?.limit ?? 50);
+
+  const { data, error } = await query;
+  if (error) {
+    console.error('[adminDataService] getBackofficeDrafts:', error.message);
+    return MOCK_DRAFTS;
+  }
+  // Fall back to mock if table not yet seeded
+  if (!data || data.length === 0) return MOCK_DRAFTS;
+  return data as DbBackofficeDraft[];
+}
+
+export async function getBackofficeDraftById(id: string): Promise<DbBackofficeDraft | null> {
+  if (!isSupabaseConfigured()) {
+    return MOCK_DRAFTS.find(d => d.id === id) ?? null;
+  }
+
+  const sb = getSupabaseClient()!;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const { data, error } = await (sb.from('backoffice_drafts') as any).select('*').eq('id', id).single();
+  if (error) { console.error('[adminDataService] getBackofficeDraftById:', error.message); return null; }
+  return data;
+}
+
+export async function updateBackofficeDraft(
+  id: string,
+  updates: Partial<Pick<DbBackofficeDraft, 'title' | 'content' | 'status' | 'intended_sender_role'>>,
+): Promise<DbBackofficeDraft | null> {
+  if (!isSupabaseConfigured()) {
+    const idx = MOCK_DRAFTS.findIndex(d => d.id === id);
+    if (idx === -1) return null;
+    MOCK_DRAFTS[idx] = { ...MOCK_DRAFTS[idx], ...updates, updated_at: new Date().toISOString() };
+    return MOCK_DRAFTS[idx];
+  }
+
+  const sb = getSupabaseClient()!;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const { data, error } = await (sb.from('backoffice_drafts') as any)
+    .update({ ...updates, updated_at: new Date().toISOString() })
+    .eq('id', id)
+    .select()
+    .single();
+  if (error) { console.error('[adminDataService] updateBackofficeDraft:', error.message); return null; }
+  return data;
+}
+
+export const markBackofficeDraftUsed     = (id: string) => updateBackofficeDraft(id, { status: 'used' });
+export const archiveBackofficeDraft      = (id: string) => updateBackofficeDraft(id, { status: 'archived' });

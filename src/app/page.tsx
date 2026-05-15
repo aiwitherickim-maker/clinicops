@@ -6,6 +6,7 @@ import { Dashboard } from '@/components/Dashboard';
 import { PatientChatSimulator } from '@/components/PatientChatSimulator';
 import { StaffReviewInbox } from '@/components/StaffReviewInbox';
 import { BackOfficeCommandCenter } from '@/components/BackOfficeCommandCenter';
+import { BackofficeDrafts } from '@/components/BackofficeDrafts';
 import { Tasks } from '@/components/Tasks';
 import { ClinicSetup } from '@/components/ClinicSetup';
 import { INBOX } from '@/data/mockMessages';
@@ -13,7 +14,7 @@ import { TASKS } from '@/data/mockTasks';
 import type { InboxMessage } from '@/types';
 import { getInboxMessages, resolveMessageWorkflow } from '@/services/clinicDataService';
 
-type Section = 'dashboard' | 'chat' | 'inbox' | 'command' | 'tasks' | 'setup';
+type Section = 'dashboard' | 'chat' | 'inbox' | 'command' | 'drafts' | 'tasks' | 'setup';
 
 export default function Home() {
   const [section, setSection] = useState<Section>('dashboard');
@@ -53,6 +54,7 @@ export default function Home() {
             />
           )}
           {section === 'command'   && <BackOfficeCommandCenter />}
+          {section === 'drafts'    && <BackofficeDrafts />}
           {section === 'tasks'     && <Tasks />}
           {section === 'setup'     && <ClinicSetup />}
         </div>

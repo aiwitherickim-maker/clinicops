@@ -211,6 +211,37 @@ export interface DbBackofficeCommand {
   created_at: string;
 }
 
+export type BackofficeDraftStatus = 'draft' | 'ready_for_review' | 'approved' | 'used' | 'archived';
+export type BackofficeDraftType   =
+  | 'payer_call_script'
+  | 'patient_update'
+  | 'internal_note'
+  | 'prior_auth_checklist'
+  | 'appeal_draft'
+  | 'billing_followup';
+
+export interface DbBackofficeDraft {
+  id:                   string;
+  clinic_id:            string;
+  patient_id:           string | null;
+  appointment_id:       string | null;
+  procedure_id:         string | null;
+  prior_auth_id:        string | null;
+  billing_case_id:      string | null;
+  task_id:              string | null;
+  command_id:           string | null;
+  draft_type:           string;
+  title:                string;
+  content:              string;
+  intended_audience:    string;
+  intended_sender_role: string | null;
+  status:               string;
+  created_by_agent:     boolean;
+  metadata:             Record<string, unknown>;
+  created_at:           string;
+  updated_at:           string;
+}
+
 // Supabase typed schema — used by createClient<Database>()
 export interface Database {
   public: {
@@ -284,6 +315,11 @@ export interface Database {
         Row: DbBackofficeCommand;
         Insert: Omit<DbBackofficeCommand, 'id' | 'created_at'>;
         Update: never; // Commands are immutable
+      };
+      backoffice_drafts: {
+        Row: DbBackofficeDraft;
+        Insert: Omit<DbBackofficeDraft, 'id' | 'created_at' | 'updated_at'>;
+        Update: Partial<Omit<DbBackofficeDraft, 'id' | 'created_at'>>;
       };
     };
   };

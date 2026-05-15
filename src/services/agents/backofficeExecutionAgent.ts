@@ -15,15 +15,17 @@ export interface BackofficeTaskSpec {
 }
 
 export interface BackofficeDraft {
-  draft_type: 'payer_call_script' | 'patient_update' | 'internal_note';
+  draft_type: 'payer_call_script' | 'patient_update' | 'internal_note' | 'prior_auth_checklist' | 'appeal_draft' | 'billing_followup';
   title: string;
   text: string;
+  intended_sender_role?: string;
 }
 
 export interface BackofficeCreatedItem {
   type: 'task' | 'draft' | 'status_update';
   title: string;
-  status: 'created' | 'prepared' | 'skipped';
+  status: 'created' | 'prepared' | 'saved' | 'skipped';
+  draftId?: string;
 }
 
 export interface BackofficeExecutionResult {

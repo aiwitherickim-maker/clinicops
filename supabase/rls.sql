@@ -41,4 +41,9 @@ CREATE POLICY "anon_read"  ON prior_authorizations FOR SELECT USING (true);
 CREATE POLICY "anon_read"  ON billing_cases        FOR SELECT USING (true);
 CREATE POLICY "anon_write" ON backoffice_commands  FOR ALL   USING (true);
 
+-- ── backoffice_drafts (003_backoffice_drafts.sql) ─────────────────────────────
+ALTER TABLE backoffice_drafts ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "anon_read"  ON backoffice_drafts FOR SELECT USING (true);
+CREATE POLICY "anon_write" ON backoffice_drafts FOR ALL    USING (true);
+
 SELECT 'RLS policies applied.' AS status;

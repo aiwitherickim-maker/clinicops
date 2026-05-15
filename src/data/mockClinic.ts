@@ -19,6 +19,7 @@ export const NAV: NavItem[] = [
   { key: 'chat',      label: 'Patient Chat Simulator',   iconKey: 'message' },
   { key: 'inbox',     label: 'Staff Review Inbox',       iconKey: 'inbox',   count: 3, urgent: true },
   { key: 'command',   label: 'Back-Office Command',      iconKey: 'terminal' },
+  { key: 'drafts',    label: 'Backoffice Drafts',        iconKey: 'file' },
   { key: 'tasks',     label: 'Tasks',                    iconKey: 'check',   count: 8 },
   { key: 'setup',     label: 'Clinic Setup',             iconKey: 'settings' },
 ];

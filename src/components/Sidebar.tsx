@@ -76,6 +76,7 @@ export function TopBar({ section }: TopBarProps) {
     chat:      'Patient Chat Simulator',
     inbox:     'Staff Review Inbox',
     command:   'Back-Office Command Center',
+    drafts:    'Backoffice Drafts',
     tasks:     'Tasks',
     setup:     'Clinic Setup',
   };

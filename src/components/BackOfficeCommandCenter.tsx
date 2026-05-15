@@ -107,15 +107,21 @@ function buildActionCards(data: BackofficeApiResponse): CommandAction[] {
     });
   }
 
-  // Drafts
+  // Drafts — check created_items to know if saved to DB
+  const savedDraftTitles = new Set(
+    (data.created_items ?? [])
+      .filter(ci => ci.type === 'draft' && ci.status === 'saved')
+      .map(ci => ci.title),
+  );
   for (const [i, d] of (data.drafts ?? []).entries()) {
+    const wasSaved = savedDraftTitles.has(d.title);
     cards.push({
       id: `dr-${ts}-${i}`,
-      iconKey: 'edit',
+      iconKey: 'file',
       tone:    'sage',
       title:   d.title,
       badges: [
-        { label: 'Draft ready', tone: 'sage' },
+        { label: wasSaved ? 'Draft saved' : 'Draft prepared', tone: wasSaved ? 'sage' : 'cream' },
         { label: d.draft_type.replace(/_/g, ' '), tone: 'neutral' },
       ],
       rows: [
@@ -501,13 +507,15 @@ function ActivityTrail({ logs }: { logs: StageLog[] }) {
 // ── Created items summary ─────────────────────────────────────────────────────
 
 function CreatedItemsSummary({ items }: { items: BackofficeCreatedItemSummary[] }) {
-  const tasks  = items.filter(i => i.type === 'task'  && i.status === 'created');
-  const drafts = items.filter(i => i.type === 'draft' && i.status === 'prepared');
-  if (tasks.length === 0 && drafts.length === 0) return null;
+  const tasks        = items.filter(i => i.type === 'task'  && i.status === 'created');
+  const savedDrafts  = items.filter(i => i.type === 'draft' && i.status === 'saved');
+  const prepedDrafts = items.filter(i => i.type === 'draft' && i.status === 'prepared');
+  if (tasks.length === 0 && savedDrafts.length === 0 && prepedDrafts.length === 0) return null;
 
   const parts: string[] = [];
-  if (tasks.length)  parts.push(`${tasks.length} task${tasks.length > 1 ? 's' : ''} created`);
-  if (drafts.length) parts.push(`${drafts.length} draft${drafts.length > 1 ? 's' : ''} prepared`);
+  if (tasks.length)        parts.push(`${tasks.length} task${tasks.length > 1 ? 's' : ''} created`);
+  if (savedDrafts.length)  parts.push(`${savedDrafts.length} draft${savedDrafts.length > 1 ? 's' : ''} saved → Drafts`);
+  if (prepedDrafts.length) parts.push(`${prepedDrafts.length} draft${prepedDrafts.length > 1 ? 's' : ''} prepared (not saved)`);
 
   return (
     <div style={{
@@ -520,7 +528,7 @@ function CreatedItemsSummary({ items }: { items: BackofficeCreatedItemSummary[] 
       fontWeight: 600,
     }}>
       <IconCheckCircle size={12} />
-      {parts.join(' · ')} → see actions panel
+      {parts.join(' · ')}
     </div>
   );
 }

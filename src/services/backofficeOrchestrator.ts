@@ -15,6 +15,7 @@ import {
   getAdminCaseSummary,
   findPatientCandidates,
   saveBackofficeCommand,
+  createBackofficeDraft,
 } from './adminDataService';
 import type { AdminCaseSummary } from './adminDataService';
 import { createTask } from './db/taskDbService';
@@ -102,6 +103,14 @@ function buildCaseSummaryStrings(s: AdminCaseSummary): BackofficeCommandResult['
 
 function pluralise(n: number, word: string) {
   return `${n} ${word}${n !== 1 ? 's' : ''}`;
+}
+
+function inferSenderRole(draftType: string): string {
+  switch (draftType) {
+    case 'patient_update':    return 'front_desk';
+    case 'internal_note':     return 'care_coordinator';
+    default:                  return 'billing';
+  }
 }
 
 // ── Orchestrator ──────────────────────────────────────────────────────────────
@@ -297,41 +306,88 @@ export async function runBackofficeWorkflow(
       }
     }
 
-    // Add prepared drafts to created_items
-    for (const draft of execution.drafts ?? []) {
-      createdItems.push({ type: 'draft', title: draft.title, status: 'prepared' });
-    }
-
-    if (execution.drafts?.length) {
-      logs.push(makeLog(
-        'drafts_created',
-        `Prepared ${pluralise(execution.drafts.length, 'draft')}`,
-        'completed',
-        execution.drafts.map(d => d.title).join(' · '),
-      ));
-    }
-
-    result.created_items = createdItems.length ? createdItems : (execution.created_items ?? []);
-
-    // ── 7. Save command record ────────────────────────────────────────────────
-    const saved = await saveBackofficeCommand({
+    // ── 7. Save command record (first, to get command_id for draft linking) ──
+    const savedCommand = await saveBackofficeCommand({
       clinicId,
       staffId,
-      commandText:  command,
-      commandType:  parsedCommand.command_type,
+      commandText: command,
+      commandType: parsedCommand.command_type,
       result: {
-        patient_match:    parsedCommand.patient_name,
-        blockers_count:   workup.blockers.length,
-        tasks_created:    createdItems.filter(i => i.type === 'task' && i.status === 'created').length,
-        drafts_prepared:  (execution.drafts ?? []).length,
+        patient_match:   parsedCommand.patient_name,
+        blockers_count:  workup.blockers.length,
+        tasks_created:   createdItems.filter(i => i.type === 'task' && i.status === 'created').length,
+        drafts_prepared: (execution.drafts ?? []).length,
       },
     });
-    if (saved) {
-      console.log('[backofficeOrchestrator] command record saved');
+    if (savedCommand) {
+      console.log('[backofficeOrchestrator] command record saved:', savedCommand.id);
     } else {
       console.error('[backofficeOrchestrator] saveBackofficeCommand returned null — RLS policy or DB error prevented audit log save');
       result.audit_notes = (result.audit_notes ?? '') + ' Command audit log save failed (RLS or DB error) — workflow output was not affected.';
     }
+
+    // ── 8. Persist drafts to backoffice_drafts ────────────────────────────────
+    const patientFromSummary = caseSummary?.patient;
+    const apptFromSummary    = caseSummary?.appointments[0];
+    const procFromSummary    = caseSummary?.procedures[0];
+    const paFromSummary      = caseSummary?.priorAuthorizations[0];
+    const bcFromSummary      = caseSummary?.billingCases[0];
+
+    let draftsSaved = 0;
+    for (const draft of execution.drafts ?? []) {
+      try {
+        const senderRole = draft.intended_sender_role
+          ?? inferSenderRole(draft.draft_type);
+        const saved = await createBackofficeDraft({
+          clinicId,
+          patientId:      patientFromSummary?.id ?? null,
+          appointmentId:  apptFromSummary?.id ?? null,
+          procedureId:    procFromSummary?.id ?? null,
+          priorAuthId:    paFromSummary?.id ?? null,
+          billingCaseId:  bcFromSummary?.id ?? null,
+          commandId:      savedCommand?.id ?? null,
+          draftType:      draft.draft_type,
+          title:          draft.title,
+          content:        draft.text,
+          intendedSenderRole: senderRole,
+          metadata: {
+            patient_name: patientFromSummary?.full_name ?? null,
+            blockers:     workup.blockers.map(b => b.type),
+          },
+        });
+        if (saved) {
+          createdItems.push({ type: 'draft', title: draft.title, status: 'saved', draftId: saved.id });
+          draftsSaved++;
+        } else {
+          createdItems.push({ type: 'draft', title: draft.title, status: 'prepared' });
+          console.error('[backofficeOrchestrator] draft save returned null for:', draft.title);
+        }
+      } catch (e) {
+        console.error('[backofficeOrchestrator] draft save failed:', e);
+        createdItems.push({ type: 'draft', title: draft.title, status: 'prepared' });
+      }
+    }
+
+    if (draftsSaved > 0) {
+      logs.push(makeLog(
+        'drafts_saved',
+        `Saved ${pluralise(draftsSaved, 'draft')} to Drafts`,
+        'completed',
+        execution.drafts?.map(d => d.title).join(' · '),
+      ));
+      // Update assistant response to mention saved drafts
+      result.assistant_response = result.assistant_response
+        .replace(/draft prepared/gi, 'draft saved to Drafts')
+        .replace(/drafts prepared/gi, 'drafts saved to Drafts');
+    } else if ((execution.drafts ?? []).length > 0) {
+      logs.push(makeLog(
+        'drafts_created',
+        `Prepared ${pluralise(execution.drafts!.length, 'draft')} (not saved to DB)`,
+        'completed',
+      ));
+    }
+
+    result.created_items = createdItems.length ? createdItems : (execution.created_items ?? []);
 
     logs.push(makeLog('completed', 'Workflow completed', 'completed'));
     return result;

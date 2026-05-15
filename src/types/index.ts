@@ -141,7 +141,8 @@ export interface BackofficeBlockerSummary {
 export interface BackofficeCreatedItemSummary {
   type: string;
   title: string;
-  status: 'created' | 'prepared' | 'skipped';
+  status: 'created' | 'prepared' | 'saved' | 'skipped';
+  draftId?: string;
 }
 
 export interface PatientCandidateInfo {
