@@ -108,9 +108,13 @@ function pluralise(n: number, word: string) {
 
 function inferSenderRole(draftType: string): string {
   switch (draftType) {
-    case 'patient_update':    return 'front_desk';
-    case 'internal_note':     return 'care_coordinator';
-    default:                  return 'billing';
+    case 'patient_update':        return 'billing';   // most patient updates in this product are financial/insurance
+    case 'internal_note':         return 'care_coordinator';
+    case 'prior_auth_checklist':  return 'billing';
+    case 'appeal_draft':          return 'billing';
+    case 'billing_followup':      return 'billing';
+    case 'payer_call_script':     return 'billing';
+    default:                      return 'billing';
   }
 }
 

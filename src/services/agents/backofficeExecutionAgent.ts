@@ -115,9 +115,10 @@ Return this exact shape:
   ],
   "drafts": [
     {
-      "draft_type": "payer_call_script | patient_update | internal_note",
+      "draft_type": "payer_call_script | patient_update | internal_note | prior_auth_checklist | appeal_draft | billing_followup",
       "title": "...",
-      "text": "<complete, ready-to-use draft text>"
+      "text": "<complete, ready-to-use draft text>",
+      "intended_sender_role": "<choose one: billing | front_desk | clinician | care_coordinator — billing for insurance/PA/financial topics; front_desk for scheduling/admin; clinician for clinical/medical topics>"
     }
   ],
   "created_items": [],
