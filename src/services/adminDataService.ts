@@ -1195,5 +1195,98 @@ export async function updateBackofficeDraft(
   return data;
 }
 
-export const markBackofficeDraftUsed     = (id: string) => updateBackofficeDraft(id, { status: 'used' });
-export const archiveBackofficeDraft      = (id: string) => updateBackofficeDraft(id, { status: 'archived' });
+export const markBackofficeDraftUsed = (id: string) => updateBackofficeDraft(id, { status: 'used' });
+export const archiveBackofficeDraft  = (id: string) => updateBackofficeDraft(id, { status: 'archived' });
+
+// ── Backoffice Chat Messages ───────────────────────────────────────────────────
+
+import type { DbBackofficeChatMessage } from '@/types/database';
+
+export interface CreateBackofficeChatMessageInput {
+  clinicId:         string;
+  commandId?:       string | null;
+  staffId?:         string | null;
+  role:             'user' | 'assistant' | 'system';
+  content:          string;
+  messageType?:     string;
+  stageLogs?:       unknown[];
+  linkedPatientId?: string | null;
+  linkedTaskIds?:   string[];
+  linkedDraftIds?:  string[];
+  metadata?:        Record<string, unknown>;
+}
+
+export async function createBackofficeChatMessage(
+  input: CreateBackofficeChatMessageInput,
+): Promise<DbBackofficeChatMessage | null> {
+  if (!isSupabaseConfigured()) {
+    return {
+      id:                `bcm-mock-${Date.now()}`,
+      clinic_id:         input.clinicId,
+      command_id:        input.commandId ?? null,
+      staff_id:          input.staffId ?? null,
+      role:              input.role,
+      content:           input.content,
+      message_type:      input.messageType ?? 'backoffice_command',
+      stage_logs:        input.stageLogs ?? [],
+      linked_patient_id: input.linkedPatientId ?? null,
+      linked_task_ids:   input.linkedTaskIds ?? [],
+      linked_draft_ids:  input.linkedDraftIds ?? [],
+      metadata:          input.metadata ?? {},
+      created_at:        new Date().toISOString(),
+    };
+  }
+
+  const sb = getSupabaseClient()!;
+  const payload = {
+    clinic_id:         input.clinicId,
+    command_id:        input.commandId ?? null,
+    staff_id:          input.staffId ?? null,
+    role:              input.role,
+    content:           input.content,
+    message_type:      input.messageType ?? 'backoffice_command',
+    stage_logs:        input.stageLogs ?? [],
+    linked_patient_id: input.linkedPatientId ?? null,
+    linked_task_ids:   input.linkedTaskIds ?? [],
+    linked_draft_ids:  input.linkedDraftIds ?? [],
+    metadata:          input.metadata ?? {},
+  };
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const { data, error } = await (sb.from('backoffice_chat_messages') as any)
+    .insert(payload).select().single();
+  if (error) {
+    console.error('[adminDataService] createBackofficeChatMessage:', error.message);
+    return null;
+  }
+  return data as DbBackofficeChatMessage;
+}
+
+export async function getBackofficeChatMessages(filters?: {
+  clinicId?: string;
+  commandId?: string;
+  limit?: number;
+}): Promise<DbBackofficeChatMessage[]> {
+  if (!isSupabaseConfigured()) return [];
+
+  const sb = getSupabaseClient()!;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  let query = (sb.from('backoffice_chat_messages') as any)
+    .select('*')
+    .order('created_at', { ascending: true });
+  if (filters?.clinicId)  query = query.eq('clinic_id', filters.clinicId);
+  if (filters?.commandId) query = query.eq('command_id', filters.commandId);
+  query = query.limit(filters?.limit ?? 100);
+
+  const { data, error } = await query;
+  if (error) {
+    console.error('[adminDataService] getBackofficeChatMessages:', error.message);
+    return [];
+  }
+  return (data ?? []) as DbBackofficeChatMessage[];
+}
+
+export async function getBackofficeConversationForCommand(
+  commandId: string,
+): Promise<DbBackofficeChatMessage[]> {
+  return getBackofficeChatMessages({ commandId });
+}

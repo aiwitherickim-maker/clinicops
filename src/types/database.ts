@@ -242,6 +242,22 @@ export interface DbBackofficeDraft {
   updated_at:           string;
 }
 
+export interface DbBackofficeChatMessage {
+  id:                string;
+  clinic_id:         string;
+  command_id:        string | null;
+  staff_id:          string | null;
+  role:              'user' | 'assistant' | 'system';
+  content:           string;
+  message_type:      string;
+  stage_logs:        unknown[];
+  linked_patient_id: string | null;
+  linked_task_ids:   string[];
+  linked_draft_ids:  string[];
+  metadata:          Record<string, unknown>;
+  created_at:        string;
+}
+
 // Supabase typed schema — used by createClient<Database>()
 export interface Database {
   public: {
@@ -320,6 +336,11 @@ export interface Database {
         Row: DbBackofficeDraft;
         Insert: Omit<DbBackofficeDraft, 'id' | 'created_at' | 'updated_at'>;
         Update: Partial<Omit<DbBackofficeDraft, 'id' | 'created_at'>>;
+      };
+      backoffice_chat_messages: {
+        Row: DbBackofficeChatMessage;
+        Insert: Omit<DbBackofficeChatMessage, 'id' | 'created_at'>;
+        Update: never;
       };
     };
   };

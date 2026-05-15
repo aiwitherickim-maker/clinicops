@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { COMMAND_CHAT_SEED, COMMAND_ACTIONS, COMMAND_QUICKS } from '@/data/mockMessages';
 import type {
   CommandChatMessage, CommandAction, StageLog,
@@ -8,6 +8,29 @@ import type {
   PatientCandidateInfo, PatientConfirmationData,
 } from '@/types';
 import type { Tone } from '@/types';
+
+// ── DB message → chat message ─────────────────────────────────────────────────
+
+interface DbChatMsg {
+  id: string;
+  role: 'user' | 'assistant' | 'system';
+  content: string;
+  stage_logs: unknown[];
+  metadata: Record<string, unknown>;
+  created_at: string;
+}
+
+function dbMsgToChat(m: DbChatMsg): CommandChatMessage {
+  return {
+    who:          m.role === 'user' ? 'staff' : 'bot',
+    text:         m.content,
+    t:            new Date(m.created_at).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' }),
+    stageLogs:    m.role === 'assistant' ? (m.stage_logs as StageLog[]) : undefined,
+    blockers:     (m.metadata?.blockers as BackofficeBlockerSummary[]) ?? undefined,
+    createdItems: (m.metadata?.created_items as BackofficeCreatedItemSummary[]) ?? undefined,
+    // patientConfirmation intentionally omitted — stale for historical messages
+  };
+}
 import { Button, Badge, IconTile, Dot } from './Primitives';
 import {
   IconBook, IconClock, IconSparkles, IconSend, IconPlus,
@@ -160,14 +183,33 @@ export function BackOfficeCommandCenter() {
   const [chat, setChat]       = useState<CommandChatMessage[]>(COMMAND_CHAT_SEED);
   const [actions, setActions] = useState<CommandAction[]>(COMMAND_ACTIONS);
   const [input, setInput]     = useState('');
-  const [thinking, setThinking] = useState(false);
-  const [flashIds, setFlashIds] = useState<string[]>([]);
+  const [thinking, setThinking]         = useState(false);
+  const [historyLoading, setHistoryLoading] = useState(true);
+  const [flashIds, setFlashIds]         = useState<string[]>([]);
   const [pendingConfirmation, setPendingConfirmation] = useState<{
     originalCommand: string;
     status: 'needs_confirmation' | 'ambiguous';
     candidates: PatientCandidateInfo[];
   } | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
+
+  // Load persisted history on mount
+  const loadHistory = useCallback(async () => {
+    try {
+      const res = await fetch('/api/backoffice-chat-messages?clinicId=a0000000-0000-0000-0000-000000000001&limit=100');
+      if (!res.ok) return;
+      const json = await res.json() as { messages: DbChatMsg[] };
+      if (json.messages && json.messages.length > 0) {
+        setChat(json.messages.map(dbMsgToChat));
+      }
+    } catch {
+      // Keep seed data on error — non-critical
+    } finally {
+      setHistoryLoading(false);
+    }
+  }, []);
+
+  useEffect(() => { loadHistory(); }, [loadHistory]);
 
   useEffect(() => {
     if (scrollRef.current) scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
@@ -305,6 +347,12 @@ export function BackOfficeCommandCenter() {
           </div>
 
           <div className="ch-body" ref={scrollRef}>
+            {historyLoading && (
+              <div style={{ padding: '10px 18px', fontSize: 12, color: 'var(--fg3)', display: 'flex', alignItems: 'center', gap: 6 }}>
+                <Dot delay={0} /><Dot delay={120} /><Dot delay={240} />
+                <span style={{ marginLeft: 2 }}>Loading history…</span>
+              </div>
+            )}
             {chat.map((m, i) => (
               <CmdMsg
                 key={i}

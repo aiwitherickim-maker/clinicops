@@ -16,6 +16,7 @@ import {
   findPatientCandidates,
   saveBackofficeCommand,
   createBackofficeDraft,
+  createBackofficeChatMessage,
 } from './adminDataService';
 import type { AdminCaseSummary } from './adminDataService';
 import { createTask } from './db/taskDbService';
@@ -313,10 +314,12 @@ export async function runBackofficeWorkflow(
       commandText: command,
       commandType: parsedCommand.command_type,
       result: {
-        patient_match:   parsedCommand.patient_name,
-        blockers_count:  workup.blockers.length,
-        tasks_created:   createdItems.filter(i => i.type === 'task' && i.status === 'created').length,
-        drafts_prepared: (execution.drafts ?? []).length,
+        patient_match:    parsedCommand.patient_name,
+        patient_id:       caseSummary?.patient?.id ?? null,
+        command_type:     parsedCommand.command_type,
+        blockers_count:   workup.blockers.length,
+        tasks_created:    createdItems.filter(i => i.type === 'task' && i.status === 'created').length,
+        drafts_prepared:  (execution.drafts ?? []).length,
       },
     });
     if (savedCommand) {
@@ -388,6 +391,45 @@ export async function runBackofficeWorkflow(
     }
 
     result.created_items = createdItems.length ? createdItems : (execution.created_items ?? []);
+
+    // ── 9. Persist chat messages ──────────────────────────────────────────────
+    const savedDraftIds = createdItems
+      .filter(i => i.type === 'draft' && i.status === 'saved' && i.draftId)
+      .map(i => i.draftId!);
+
+    await Promise.all([
+      createBackofficeChatMessage({
+        clinicId,
+        commandId:       savedCommand?.id ?? null,
+        staffId,
+        role:            'user',
+        content:         command,
+        linkedPatientId: patientFromSummary?.id ?? null,
+        metadata: {
+          command_type:  parsedCommand.command_type,
+          patient_name:  patientFromSummary?.full_name ?? null,
+        },
+      }),
+      createBackofficeChatMessage({
+        clinicId,
+        commandId:       savedCommand?.id ?? null,
+        staffId,
+        role:            'assistant',
+        content:         result.assistant_response,
+        stageLogs:       logs,
+        linkedPatientId: patientFromSummary?.id ?? null,
+        linkedDraftIds:  savedDraftIds,
+        metadata: {
+          command_type:  parsedCommand.command_type,
+          patient_name:  patientFromSummary?.full_name ?? null,
+          blockers:      result.blockers,
+          created_items: result.created_items,
+          audit_notes:   result.audit_notes,
+        },
+      }),
+    ]).catch(err => {
+      console.error('[backofficeOrchestrator] chat message save failed:', err);
+    });
 
     logs.push(makeLog('completed', 'Workflow completed', 'completed'));
     return result;

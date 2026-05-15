@@ -46,4 +46,9 @@ ALTER TABLE backoffice_drafts ENABLE ROW LEVEL SECURITY;
 CREATE POLICY "anon_read"  ON backoffice_drafts FOR SELECT USING (true);
 CREATE POLICY "anon_write" ON backoffice_drafts FOR ALL    USING (true);
 
+-- ── backoffice_chat_messages (004_backoffice_chat_messages.sql) ───────────────
+ALTER TABLE backoffice_chat_messages ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "anon_read"  ON backoffice_chat_messages FOR SELECT USING (true);
+CREATE POLICY "anon_write" ON backoffice_chat_messages FOR ALL    USING (true);
+
 SELECT 'RLS policies applied.' AS status;
