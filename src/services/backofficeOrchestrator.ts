@@ -401,20 +401,21 @@ export async function runBackofficeWorkflow(
       .filter(i => i.type === 'draft' && i.status === 'saved' && i.draftId)
       .map(i => i.draftId!);
 
-    await Promise.all([
-      createBackofficeChatMessage({
-        clinicId,
-        commandId:       savedCommand?.id ?? null,
-        staffId,
-        role:            'user',
-        content:         command,
-        linkedPatientId: patientFromSummary?.id ?? null,
-        metadata: {
-          command_type:  parsedCommand.command_type,
-          patient_name:  patientFromSummary?.full_name ?? null,
-        },
-      }),
-      createBackofficeChatMessage({
+    // Save user message first (await), then assistant — ensures created_at ordering is correct
+    await createBackofficeChatMessage({
+      clinicId,
+      commandId:       savedCommand?.id ?? null,
+      staffId,
+      role:            'user',
+      content:         command,
+      linkedPatientId: patientFromSummary?.id ?? null,
+      metadata: {
+        command_type:  parsedCommand.command_type,
+        patient_name:  patientFromSummary?.full_name ?? null,
+      },
+    }).catch(err => console.error('[backofficeOrchestrator] user chat message save failed:', err));
+
+    await createBackofficeChatMessage({
         clinicId,
         commandId:       savedCommand?.id ?? null,
         staffId,
@@ -430,10 +431,7 @@ export async function runBackofficeWorkflow(
           created_items: result.created_items,
           audit_notes:   result.audit_notes,
         },
-      }),
-    ]).catch(err => {
-      console.error('[backofficeOrchestrator] chat message save failed:', err);
-    });
+      }).catch(err => console.error('[backofficeOrchestrator] assistant chat message save failed:', err));
 
     logs.push(makeLog('completed', 'Workflow completed', 'completed'));
     return result;
