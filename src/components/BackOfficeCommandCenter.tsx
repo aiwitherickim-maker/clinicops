@@ -205,6 +205,21 @@ function ResetButton({ onClick, label }: { onClick: () => void; label: string })
   );
 }
 
+// ── Execution trace ───────────────────────────────────────────────────────────
+
+interface ExecutionStep {
+  label: string;
+  details?: string;
+  status: string;
+}
+
+interface ExecutionRun {
+  steps: ExecutionStep[];
+  running: boolean;
+  summary: string | null;
+  expanded: boolean;
+}
+
 // ── Component ─────────────────────────────────────────────────────────────────
 
 export function BackOfficeCommandCenter() {
@@ -214,6 +229,7 @@ export function BackOfficeCommandCenter() {
   const [thinking, setThinking]         = useState(false);
   const [historyLoading, setHistoryLoading] = useState(true);
   const [flashIds, setFlashIds]         = useState<string[]>([]);
+  const [currentExecution, setCurrentExecution] = useState<ExecutionRun | null>(null);
   const [pendingConfirmation, setPendingConfirmation] = useState<{
     originalCommand: string;
     status: 'needs_confirmation' | 'ambiguous';
@@ -252,7 +268,7 @@ export function BackOfficeCommandCenter() {
 
   useEffect(() => {
     if (scrollRef.current) scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
-  }, [chat, thinking]);
+  }, [chat, thinking, currentExecution?.steps.length]);
 
   const flash = (ids: string[]) => {
     setFlashIds(ids);
@@ -263,6 +279,8 @@ export function BackOfficeCommandCenter() {
 
   const callBackofficeApi = async (command: string, confirmedPatientName?: string) => {
     setThinking(true);
+    setCurrentExecution({ steps: [], running: true, summary: null, expanded: true });
+
     try {
       const res = await fetch('/api/backoffice-command', {
         method: 'POST',
@@ -274,49 +292,98 @@ export function BackOfficeCommandCenter() {
         }),
       });
 
-      if (!res.ok) throw new Error(`API error ${res.status}`);
+      if (!res.ok || !res.body) throw new Error(`API error ${res.status}`);
 
-      const data = await res.json() as BackofficeApiResponse;
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = '';
+      let finalResult: BackofficeApiResponse | null = null;
 
-      const matchInfo = data.patient_match_info;
-      let patientConfirmation: PatientConfirmationData | undefined;
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
 
-      if (matchInfo && (matchInfo.status === 'needs_confirmation' || matchInfo.status === 'ambiguous')) {
-        patientConfirmation = {
-          status:          matchInfo.status,
-          query:           matchInfo.query,
-          candidates:      matchInfo.candidates,
-          originalCommand: command,
-        };
-        setPendingConfirmation({
-          originalCommand: command,
-          status:          matchInfo.status,
-          candidates:      matchInfo.candidates,
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split('\n');
+        buffer = lines.pop() ?? '';
+
+        for (const line of lines) {
+          if (!line.trim()) continue;
+          try {
+            const msg = JSON.parse(line) as { t: string; [k: string]: unknown };
+            if (msg.t === 'step') {
+              const step: ExecutionStep = {
+                label:   msg.label   as string,
+                details: msg.details as string | undefined,
+                status:  msg.status  as string,
+              };
+              setCurrentExecution(prev => prev ? { ...prev, steps: [...prev.steps, step] } : null);
+            } else if (msg.t === 'done') {
+              finalResult = msg.data as BackofficeApiResponse;
+            }
+          } catch { /* skip malformed lines */ }
+        }
+      }
+
+      if (finalResult) {
+        const data = finalResult;
+        const matchInfo = data.patient_match_info;
+        let patientConfirmation: PatientConfirmationData | undefined;
+
+        if (matchInfo && (matchInfo.status === 'needs_confirmation' || matchInfo.status === 'ambiguous')) {
+          patientConfirmation = {
+            status:          matchInfo.status,
+            query:           matchInfo.query,
+            candidates:      matchInfo.candidates,
+            originalCommand: command,
+          };
+          setPendingConfirmation({
+            originalCommand: command,
+            status:          matchInfo.status,
+            candidates:      matchInfo.candidates,
+          });
+        } else {
+          setPendingConfirmation(null);
+        }
+
+        // Chat gets only the final assistant response — no stage logs
+        setChat(c => [...c, {
+          who:                'bot',
+          text:               data.assistant_response,
+          t:                  t(),
+          blockers:           data.blockers,
+          createdItems:       data.created_items,
+          patientConfirmation,
+        }]);
+
+        const newCards = buildActionCards(data);
+        if (newCards.length > 0) {
+          setActions(prev => [...newCards, ...prev]);
+          flash(newCards.map(c => c.id));
+        }
+
+        // Collapse execution trace to summary
+        const draftsCount = (data.created_items ?? []).filter(i => i.type === 'draft' && i.status === 'saved').length;
+        const tasksCount  = (data.created_items ?? []).filter(i => i.type === 'task'  && i.status === 'created').length;
+        setCurrentExecution(prev => {
+          if (!prev) return null;
+          const n = prev.steps.length;
+          const parts: string[] = [`${n} step${n !== 1 ? 's' : ''}`];
+          if (draftsCount > 0) parts.push(`${draftsCount} draft${draftsCount !== 1 ? 's' : ''} saved`);
+          if (tasksCount  > 0) parts.push(`${tasksCount} task${tasksCount !== 1 ? 's' : ''} created`);
+          return { ...prev, running: false, expanded: false, summary: `Run completed · ${parts.join(' · ')}` };
         });
       } else {
-        setPendingConfirmation(null);
+        setCurrentExecution(prev => prev
+          ? { ...prev, running: false, expanded: false, summary: 'Run ended' }
+          : null,
+        );
       }
-
-      setChat(c => [...c, {
-        who:                'bot',
-        text:               data.assistant_response,
-        t:                  t(),
-        stageLogs:          data.stage_logs,
-        blockers:           data.blockers,
-        createdItems:       data.created_items,
-        patientConfirmation,
-      }]);
-
-      const newCards = buildActionCards(data);
-      if (newCards.length > 0) {
-        setActions(prev => [...newCards, ...prev]);
-        flash(newCards.map(c => c.id));
-      }
-
     } catch (err) {
       console.error('[BackOfficeCommandCenter] API error:', err);
       setPendingConfirmation(null);
       setChat(c => [...c, { who: 'bot', text: 'Something went wrong. Please try again.', t: t() }]);
+      setCurrentExecution(null);
     } finally {
       setThinking(false);
     }
@@ -402,17 +469,13 @@ export function BackOfficeCommandCenter() {
                 onCancelConfirmation={cancelConfirmation}
               />
             ))}
-            {thinking && (
-              <div className="chat-msg bot">
-                <div className="av"><IconBot size={14} /></div>
-                <div className="bub">
-                  <div className="who">ClinicOps</div>
-                  <div style={{ display: 'flex', gap: 6, alignItems: 'center', color: 'var(--fg3)', fontSize: 13 }}>
-                    <Dot delay={0} /><Dot delay={120} /><Dot delay={240} />
-                    <span style={{ marginLeft: 4 }}>Working on it…</span>
-                  </div>
-                </div>
-              </div>
+            {currentExecution && (
+              <ExecutionTraceCard
+                run={currentExecution}
+                onToggleExpand={() => setCurrentExecution(prev =>
+                  prev ? { ...prev, expanded: !prev.expanded } : null,
+                )}
+              />
             )}
           </div>
 
@@ -489,11 +552,6 @@ function CmdMsg({
       <div className="bub">
         <div className="who">{isStaff ? 'Jordan · Office manager' : 'ClinicOps'}</div>
 
-        {/* Activity trail — only for bot messages with real stage logs */}
-        {!isStaff && m.stageLogs && m.stageLogs.length > 0 && (
-          <ActivityTrail logs={m.stageLogs} />
-        )}
-
         {/* Main response text */}
         <div style={{ whiteSpace: 'pre-wrap', lineHeight: 1.6 }}>{m.text}</div>
 
@@ -546,48 +604,94 @@ function PatientConfirmationButtons({
   );
 }
 
-// ── Activity trail ────────────────────────────────────────────────────────────
+// ── Execution trace card ──────────────────────────────────────────────────────
 
-function ActivityTrail({ logs }: { logs: StageLog[] }) {
-  const visible = logs.filter(l => l.status !== 'started');
-  if (visible.length === 0) return null;
-
+function ExecutionTraceCard({ run, onToggleExpand }: { run: ExecutionRun; onToggleExpand: () => void }) {
   return (
     <div style={{
-      marginBottom: 10,
-      paddingBottom: 10,
-      borderBottom: '1px solid var(--border)',
-      display: 'flex',
-      flexDirection: 'column',
-      gap: 3,
+      border: '1px solid var(--border)',
+      borderRadius: 10,
+      overflow: 'hidden',
+      background: 'var(--paper)',
+      fontSize: 12.5,
+      alignSelf: 'stretch',
     }}>
-      {visible.map((l, i) => {
-        const isFailed    = l.status === 'failed';
-        const isCompleted = l.status === 'completed';
-        return (
-          <div key={i} style={{
-            display: 'flex',
-            alignItems: 'baseline',
-            gap: 6,
-            fontSize: 12.5,
-            color: isFailed ? '#A03A2D' : 'var(--fg2)',
-          }}>
-            <span style={{
-              fontWeight: 700,
-              color: isFailed ? '#A03A2D' : 'var(--sage-deep)',
-              flexShrink: 0,
-              width: 14,
-              textAlign: 'center',
-            }}>
-              {isFailed ? '✗' : isCompleted ? '✓' : '·'}
-            </span>
-            <span style={{ fontWeight: 500 }}>{l.label}</span>
-            {l.details && (
-              <span style={{ color: 'var(--fg3)', fontSize: 11.5 }}>· {l.details}</span>
-            )}
-          </div>
-        );
-      })}
+      {/* Header row — clickable after completion to toggle expand */}
+      <div
+        role={run.running ? undefined : 'button'}
+        tabIndex={run.running ? undefined : 0}
+        onClick={run.running ? undefined : onToggleExpand}
+        onKeyDown={run.running ? undefined : (e) => e.key === 'Enter' && onToggleExpand()}
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          gap: 8,
+          padding: '8px 12px',
+          cursor: run.running ? 'default' : 'pointer',
+          userSelect: 'none',
+        }}
+      >
+        {run.running ? (
+          <span style={{ display: 'inline-flex', gap: 4 }}>
+            <Dot delay={0} /><Dot delay={120} /><Dot delay={240} />
+          </span>
+        ) : (
+          <span style={{ color: 'var(--sage-deep)', fontWeight: 700, fontSize: 12 }}>✓</span>
+        )}
+        <span style={{ color: run.running ? 'var(--fg3)' : 'var(--fg2)', fontWeight: 500, fontSize: 12.5 }}>
+          {run.running
+            ? (run.steps.length > 0
+                ? run.steps[run.steps.length - 1].label + '…'
+                : 'Starting…')
+            : run.summary}
+        </span>
+        {!run.running && (
+          <span style={{ marginLeft: 'auto', color: 'var(--fg3)', fontSize: 11 }}>
+            {run.expanded ? '▲' : '▼'}
+          </span>
+        )}
+      </div>
+
+      {/* Step list — visible while running, or when manually expanded */}
+      {(run.running || run.expanded) && run.steps.length > 0 && (
+        <div style={{
+          borderTop: '1px solid var(--border)',
+          padding: '7px 12px 9px',
+          display: 'flex',
+          flexDirection: 'column',
+          gap: 4,
+          background: 'var(--shell)',
+        }}>
+          {run.steps.map((step, i) => (
+            <div
+              key={i}
+              style={{
+                display: 'flex',
+                alignItems: 'baseline',
+                gap: 8,
+                animation: 'fadeIn 180ms ease-in',
+              }}
+            >
+              <span style={{
+                fontSize: 11,
+                fontWeight: 700,
+                color: step.status === 'failed' ? '#A03A2D' : 'var(--sage-deep)',
+                width: 12,
+                textAlign: 'center',
+                flexShrink: 0,
+              }}>
+                {step.status === 'failed' ? '✗' : '✓'}
+              </span>
+              <span style={{ color: step.status === 'failed' ? '#A03A2D' : 'var(--fg2)' }}>
+                {step.label}
+              </span>
+              {step.details && (
+                <span style={{ color: 'var(--fg3)', fontSize: 11.5 }}>· {step.details}</span>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 }

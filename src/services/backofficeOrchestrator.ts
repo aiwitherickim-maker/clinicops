@@ -125,8 +125,14 @@ export async function runBackofficeWorkflow(
   clinicId = 'a0000000-0000-0000-0000-000000000001',
   staffId?: string,
   confirmedPatientName?: string,
+  onStep?: (log: StageLog) => void,
 ): Promise<BackofficeCommandResult> {
   const logs: StageLog[] = [];
+
+  const pushLog = (log: StageLog) => {
+    logs.push(log);
+    onStep?.(log);
+  };
 
   const result: BackofficeCommandResult = {
     command_type:        'case_lookup',
@@ -145,13 +151,13 @@ export async function runBackofficeWorkflow(
   try {
     // ── 1. Command received ───────────────────────────────────────────────────
     console.log('[backofficeOrchestrator] command:', command.slice(0, 120));
-    logs.push(makeLog('command_received', 'Command received', 'completed'));
+    pushLog(makeLog('command_received', 'Command received', 'completed'));
 
     // ── 2. Parse command ──────────────────────────────────────────────────────
     const parsedCommand = await runBackofficeCommandAgent(command);
     console.log('[backofficeOrchestrator] parsed:', JSON.stringify(parsedCommand));
 
-    logs.push(makeLog(
+    pushLog(makeLog(
       'command_parsed',
       `Command classified: ${parsedCommand.command_type}`,
       'completed',
@@ -167,7 +173,7 @@ export async function runBackofficeWorkflow(
     const searchName = confirmedPatientName ?? parsedCommand.patient_name;
 
     if (searchName) {
-      logs.push(makeLog('patient_lookup_started',
+      pushLog(makeLog('patient_lookup_started',
         confirmedPatientName ? `Using confirmed patient: ${confirmedPatientName}` : `Looking up: ${searchName}`,
         'started'));
 
@@ -191,7 +197,7 @@ export async function runBackofficeWorkflow(
 
       if (effectiveStatus === 'needs_confirmation') {
         const cand = matchResult.candidates[0];
-        logs.push(makeLog('patient_needs_confirmation', `Closest match: ${cand.full_name}`, 'completed'));
+        pushLog(makeLog('patient_needs_confirmation', `Closest match: ${cand.full_name}`, 'completed'));
         result.patient_match      = cand.full_name;
         result.patient_match_info = { ...result.patient_match_info, status: 'needs_confirmation' };
         result.assistant_response = `I found **${cand.full_name}** as the closest match. Should I use this patient?`;
@@ -201,7 +207,7 @@ export async function runBackofficeWorkflow(
 
       if (effectiveStatus === 'ambiguous') {
         const names = matchResult.candidates.map(c => c.full_name).join(', ');
-        logs.push(makeLog('patient_ambiguous', `Multiple matches found`, 'failed', names));
+        pushLog(makeLog('patient_ambiguous', `Multiple matches found`, 'failed', names));
         result.patient_match      = searchName;
         result.assistant_response = `I found multiple patients matching "${searchName}": ${names}. Which one should I use?`;
         result.audit_notes = 'Ambiguous patient name — awaiting selection.';
@@ -209,14 +215,14 @@ export async function runBackofficeWorkflow(
       }
 
       if (effectiveStatus === 'not_found' || !patient) {
-        logs.push(makeLog('patient_not_found', `No patient found: "${searchName}"`, 'failed'));
+        pushLog(makeLog('patient_not_found', `No patient found: "${searchName}"`, 'failed'));
         result.assistant_response = `I couldn't find a patient matching "${searchName}". Please try using their full name.`;
         result.audit_notes = 'Patient not found — workflow stopped.';
         return result;
       }
 
       result.patient_match = patient.full_name;
-      logs.push(makeLog('patient_found', `Found ${patient.full_name}`, 'completed'));
+      pushLog(makeLog('patient_found', `Found ${patient.full_name}`, 'completed'));
 
       caseSummary = await getAdminCaseSummary(patient.id);
       if (caseSummary) {
@@ -227,12 +233,12 @@ export async function runBackofficeWorkflow(
         if (caseSummary.priorAuthorizations.length) parts.push('prior authorization');
         if (caseSummary.billingCases.length)        parts.push('billing case');
 
-        logs.push(makeLog('admin_data_loaded', `Loaded ${parts.join(', ')}`, 'completed'));
+        pushLog(makeLog('admin_data_loaded', `Loaded ${parts.join(', ')}`, 'completed'));
         result.case_summary = buildCaseSummaryStrings(caseSummary);
         console.log('[backofficeOrchestrator] admin data loaded for:', patient.full_name);
       }
     } else {
-      logs.push(makeLog('patient_lookup_started', 'Loading clinic worklist (no specific patient)', 'completed'));
+      pushLog(makeLog('patient_lookup_started', 'Loading clinic worklist (no specific patient)', 'completed'));
     }
 
     // ── 4. Workup agent ───────────────────────────────────────────────────────
@@ -243,7 +249,7 @@ export async function runBackofficeWorkflow(
       console.log('[backofficeOrchestrator] workup blockers:', JSON.stringify(workup.blockers));
 
       if (workup.failed) {
-        logs.push(makeLog('workup_failed', 'Case workup failed — execution skipped', 'failed'));
+        pushLog(makeLog('workup_failed', 'Case workup failed — execution skipped', 'failed'));
         result.assistant_response = "I couldn't complete the case workup, so I did not create tasks or make any changes. Please try again.";
         result.audit_notes = 'Workup agent failed to return valid output — execution skipped for safety. No tasks or status updates were applied.';
         return result;
@@ -251,7 +257,7 @@ export async function runBackofficeWorkflow(
 
       if (workup.blockers.length > 0) {
         const blockerNames = workup.blockers.map(b => b.type.replace(/_/g, ' ')).join(', ');
-        logs.push(makeLog(
+        pushLog(makeLog(
           'blockers_identified',
           `Found ${pluralise(workup.blockers.length, 'blocker')}`,
           'completed',
@@ -259,7 +265,7 @@ export async function runBackofficeWorkflow(
         ));
       }
 
-      logs.push(makeLog(
+      pushLog(makeLog(
         'recommended_actions_prepared',
         `${pluralise(workup.recommended_actions.length, 'action')} recommended`,
         'completed',
@@ -307,7 +313,7 @@ export async function runBackofficeWorkflow(
 
       const tasksDone = createdItems.filter(i => i.type === 'task' && i.status === 'created').length;
       if (tasksDone > 0) {
-        logs.push(makeLog('tasks_created', `Created ${pluralise(tasksDone, 'task')}`, 'completed'));
+        pushLog(makeLog('tasks_created', `Created ${pluralise(tasksDone, 'task')}`, 'completed'));
       }
     }
 
@@ -376,7 +382,7 @@ export async function runBackofficeWorkflow(
     }
 
     if (draftsSaved > 0) {
-      logs.push(makeLog(
+      pushLog(makeLog(
         'drafts_saved',
         `Saved ${pluralise(draftsSaved, 'draft')} to Drafts`,
         'completed',
@@ -387,7 +393,7 @@ export async function runBackofficeWorkflow(
         .replace(/draft prepared/gi, 'draft saved to Drafts')
         .replace(/drafts prepared/gi, 'drafts saved to Drafts');
     } else if ((execution.drafts ?? []).length > 0) {
-      logs.push(makeLog(
+      pushLog(makeLog(
         'drafts_created',
         `Prepared ${pluralise(execution.drafts!.length, 'draft')} (not saved to DB)`,
         'completed',
@@ -433,12 +439,12 @@ export async function runBackofficeWorkflow(
         },
       }).catch(err => console.error('[backofficeOrchestrator] assistant chat message save failed:', err));
 
-    logs.push(makeLog('completed', 'Workflow completed', 'completed'));
+    pushLog(makeLog('completed', 'Workflow completed', 'completed'));
     return result;
 
   } catch (err) {
     console.error('[backofficeOrchestrator] fatal error:', err);
-    logs.push(makeLog('failed', 'Workflow failed', 'failed', String(err)));
+    pushLog(makeLog('failed', 'Workflow failed', 'failed', String(err)));
     result.assistant_response = 'An unexpected error occurred. Please try again.';
     result.audit_notes        = `Fatal error: ${String(err)}`;
     return result;
