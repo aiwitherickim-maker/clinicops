@@ -2,11 +2,12 @@
 // Bridges DB service layer → UI types (InboxMessage, Task).
 // Falls back to mock data when Supabase is not configured or returns no rows.
 
-import type { InboxMessage, Task, Staff, Tone, Risk } from '@/types';
+import type { InboxMessage, InboxTask, Task, Staff, Tone, Risk, Priority } from '@/types';
 import type { DbPatientMessage, DbTask, DbStaff, MessageStatus, TaskStatus } from '@/types/database';
 import { getMessages, updateMessageStatus as dbUpdateMessage } from './db/messageService';
 import { getTasks, updateTaskStatus as dbUpdateTask, getTasksByMessageId, updateTaskAssignedRole, createTask } from './db/taskDbService';
 import { getDraftForMessage, getStaffFollowupDraft, updateDraftStatus } from './db/draftService';
+import { getAnalysisForMessage } from './db/analysisService';
 import { getStaff } from './db/staffService';
 import { logHumanReviewEvent, computeTextDiff } from './feedbackService';
 import { INBOX } from '@/data/mockMessages';
@@ -123,7 +124,33 @@ async function dbMessageToInbox(msg: DbPatientMessage): Promise<InboxMessage> {
   const risk       = (msg.risk_level ?? 'low') as Risk;
   const iconTone   = riskToTone(risk);
   const statusTone = msgStatusTone(msg.status, risk);
-  const staffDraft = await getStaffFollowupDraft(msg.id);
+
+  const [staffDraft, analysis, relatedTasks] = await Promise.all([
+    getStaffFollowupDraft(msg.id),
+    getAnalysisForMessage(msg.id),
+    getTasksByMessageId(msg.id),
+  ]);
+
+  const intentObj     = analysis?.intent     as Record<string, unknown> | null | undefined;
+  const validationObj = analysis?.validation as Record<string, unknown> | null | undefined;
+
+  const confidence: number =
+    typeof intentObj?.confidence === 'number'
+      ? intentObj.confidence
+      : risk === 'high' ? 88 : risk === 'medium' ? 74 : 90;
+
+  const reason: string =
+    typeof validationObj?.reasonSummary === 'string' && validationObj.reasonSummary.trim()
+      ? validationObj.reasonSummary
+      : `Message from ${msg.patient_name} — awaiting staff review.`;
+
+  const primaryTask  = relatedTasks.find(t => t.status !== 'resolved') ?? relatedTasks[0];
+  const taskTitle    = primaryTask?.title    ?? `Review message from ${msg.patient_name}`;
+  const taskPriority = (primaryTask
+    ? priorityLabel(primaryTask.priority)
+    : risk === 'high' ? 'Urgent' : risk === 'medium' ? 'Medium' : 'Low') as Priority;
+  const taskAssignee = primaryTask?.assigned_role ?? msg.route_to ?? 'Staff';
+
   return {
     id:           msg.id,
     patient:      msg.patient_name,
@@ -138,14 +165,14 @@ async function dbMessageToInbox(msg: DbPatientMessage): Promise<InboxMessage> {
     routeTo:      msg.route_to ?? 'Staff',
     iconKey:      categoryToIconKey(msg.category),
     iconTone,
-    reason:       `Message from ${msg.patient_name} — awaiting staff review.`,
+    reason,
     draft:        staffDraft?.draft_text ?? 'Thank you for reaching out. A staff member will follow up shortly.',
     task: {
-      title:    `Review message from ${msg.patient_name}`,
-      priority: risk === 'high' ? 'Urgent' : risk === 'medium' ? 'Medium' : 'Low',
-      assignee: msg.route_to ?? 'Staff',
+      title:    taskTitle,
+      priority: taskPriority,
+      assignee: taskAssignee,
     },
-    confidence: risk === 'high' ? 88 : risk === 'medium' ? 74 : 90,
+    confidence,
   };
 }
 
