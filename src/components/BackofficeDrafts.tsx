@@ -240,9 +240,9 @@ export function BackofficeDrafts() {
         </div>
 
         {/* Detail panel */}
-        <div className="card">
+        <div className="card" style={{ padding: 0 }}>
           {selected == null ? (
-            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', height: 320, gap: 10, color: 'var(--fg3)' }}>
+            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', height: 320, gap: 10, color: 'var(--fg3)', padding: '20px 22px' }}>
               <IconFile size={32} style={{ opacity: 0.3 }} />
               <div style={{ fontSize: 14 }}>Select a draft to view its content</div>
             </div>
@@ -399,17 +399,17 @@ function DraftDetail({
   const name = patientName(draft);
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 0 }}>
+    <div style={{ display: 'flex', flexDirection: 'column', padding: '20px 22px 20px' }}>
       {/* Header */}
-      <div style={{ borderBottom: '1px solid var(--border)', paddingBottom: 14, marginBottom: 14 }}>
-        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 8 }}>
+      <div style={{ borderBottom: '1px solid var(--border)', paddingBottom: 16, marginBottom: 16 }}>
+        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 10 }}>
           <Badge tone={draftTypeTone(draft.draft_type)}>{formatDraftType(draft.draft_type)}</Badge>
           <Badge tone={statusTone(draft.status)}>{statusLabel(draft.status)}</Badge>
           {draft.intended_sender_role && (
             <Badge tone="neutral">{draft.intended_sender_role.replace(/_/g, ' ')}</Badge>
           )}
         </div>
-        <h2 style={{ margin: '0 0 6px', fontSize: 15, fontWeight: 700, lineHeight: 1.4 }}>{draft.title}</h2>
+        <h2 style={{ margin: '0 0 8px', fontSize: 15, fontWeight: 700, lineHeight: 1.4 }}>{draft.title}</h2>
         <div style={{ display: 'flex', gap: 16, fontSize: 12, color: 'var(--fg3)' }}>
           {name && (
             <span>
@@ -434,16 +434,16 @@ function DraftDetail({
           overflowY: 'auto',
           background: 'var(--shell)',
           border: '1px solid var(--border)',
-          borderRadius: 8,
-          padding: '14px 16px',
-          marginBottom: 16,
+          borderRadius: 10,
+          padding: '16px 18px',
+          marginBottom: 20,
         }}
       >
         <DraftContent text={draft.content} />
       </div>
 
       {/* Actions */}
-      <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+      <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', paddingBottom: 2 }}>
         <Button variant="secondary" size="sm" onClick={onCopy}>
           {copying ? <><IconCheckCircle size={13} /> Copied!</> : 'Copy'}
         </Button>
