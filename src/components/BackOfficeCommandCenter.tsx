@@ -75,13 +75,21 @@ interface BackofficeApiResponse {
 // ── Workup output ─────────────────────────────────────────────────────────────
 
 interface WorkupOutput {
-  blockers:    CommandAction[];
-  tasks:       CommandAction[];
-  drafts:      CommandAction[];
-  suggestions: CommandAction[]; // recommended_actions only when no tasks created
+  commandType:     string;
+  isDraftCommand:  boolean;
+  blockers:        CommandAction[];   // full cards — shown in task/lookup mode
+  tasks:           CommandAction[];
+  drafts:          CommandAction[];
+  suggestions:     CommandAction[];   // primary in task mode; "optional next steps" in draft mode
+  contextFindings: string[];          // compact list for draft mode (blockers as text)
 }
 
-const EMPTY_WORKUP: WorkupOutput = { blockers: [], tasks: [], drafts: [], suggestions: [] };
+const EMPTY_WORKUP: WorkupOutput = {
+  commandType: '', isDraftCommand: false,
+  blockers: [], tasks: [], drafts: [], suggestions: [], contextFindings: [],
+};
+
+const DRAFT_COMMAND_TYPES = new Set(['draft_payer_script', 'draft_patient_update']);
 
 function roleTone(role: string): Tone {
   if (role === 'clinician')  return 'red';
@@ -96,24 +104,45 @@ function priorityTone(p: string): Tone {
   return 'neutral';
 }
 
+// Returns true if a recommended_action type duplicates an already-saved draft type
+function suggestionDuplicatesDraft(suggestionType: string, savedDraftTypes: Set<string>): boolean {
+  if (savedDraftTypes.has('payer_call_script') &&
+      /payer|call.?script/i.test(suggestionType)) return true;
+  if (savedDraftTypes.has('patient_update') &&
+      /patient.?update/i.test(suggestionType)) return true;
+  if (savedDraftTypes.has('appeal_draft') &&
+      /appeal/i.test(suggestionType)) return true;
+  if (savedDraftTypes.has('billing_followup') &&
+      /billing.?followup/i.test(suggestionType)) return true;
+  return savedDraftTypes.has(suggestionType);
+}
+
 function buildWorkupOutput(data: BackofficeApiResponse): WorkupOutput {
   const ts = Date.now();
+  const isDraftCommand = DRAFT_COMMAND_TYPES.has(data.command_type);
   const hasTasks = (data.created_items ?? []).some(i => i.type === 'task' && i.status === 'created');
 
-  const blockers: CommandAction[] = (data.blockers ?? []).map((b, i) => {
-    const tone: Tone = b.severity === 'high' ? 'red' : b.severity === 'medium' ? 'amber' : 'sage';
-    return {
-      id: `bl-${ts}-${i}`,
-      iconKey: 'alert',
-      tone,
-      title: b.description.slice(0, 90),
-      badges: [
-        { label: `${b.severity.charAt(0).toUpperCase() + b.severity.slice(1)} severity`, tone },
-        { label: b.type.replace(/_/g, ' '), tone: 'neutral' as Tone },
-      ],
-      rows: [{ k: 'Patient', v: data.patient_match ?? 'N/A' }],
-    };
-  });
+  // Draft commands: blockers become compact context findings, not full cards
+  const contextFindings: string[] = isDraftCommand
+    ? (data.blockers ?? []).map(b => b.description ?? b.type.replace(/_/g, ' '))
+    : [];
+
+  const blockers: CommandAction[] = isDraftCommand
+    ? []
+    : (data.blockers ?? []).map((b, i) => {
+        const tone: Tone = b.severity === 'high' ? 'red' : b.severity === 'medium' ? 'amber' : 'sage';
+        return {
+          id: `bl-${ts}-${i}`,
+          iconKey: 'alert',
+          tone,
+          title: b.description.slice(0, 90),
+          badges: [
+            { label: `${b.severity.charAt(0).toUpperCase() + b.severity.slice(1)} severity`, tone },
+            { label: b.type.replace(/_/g, ' '), tone: 'neutral' as Tone },
+          ],
+          rows: [{ k: 'Patient', v: data.patient_match ?? 'N/A' }],
+        };
+      });
 
   const tasks: CommandAction[] = (data.created_items ?? [])
     .filter(item => item.type === 'task' && item.status === 'created')
@@ -135,6 +164,8 @@ function buildWorkupOutput(data: BackofficeApiResponse): WorkupOutput {
   const savedDraftTitles = new Set(
     (data.created_items ?? []).filter(ci => ci.type === 'draft' && ci.status === 'saved').map(ci => ci.title),
   );
+  const savedDraftTypes = new Set((data.drafts ?? []).map(d => d.draft_type));
+
   const drafts: CommandAction[] = (data.drafts ?? []).map((d, i) => {
     const wasSaved = savedDraftTitles.has(d.title);
     return {
@@ -153,9 +184,10 @@ function buildWorkupOutput(data: BackofficeApiResponse): WorkupOutput {
     };
   });
 
-  // Show recommended_actions only when the execution agent didn't create tasks from them
+  // Suggestions: hidden when tasks were created; deduplicated against saved drafts
   const suggestions: CommandAction[] = hasTasks ? [] : (data.recommended_actions ?? [])
     .filter(a => a.type !== 'no_action')
+    .filter(a => !suggestionDuplicatesDraft(a.type, savedDraftTypes))
     .map((a, i) => {
       const iconKey = a.type === 'create_task' ? 'clipboard' : a.type.includes('draft') ? 'edit' : 'file';
       return {
@@ -174,10 +206,20 @@ function buildWorkupOutput(data: BackofficeApiResponse): WorkupOutput {
       };
     });
 
-  return { blockers, tasks, drafts, suggestions };
+  return { commandType: data.command_type, isDraftCommand, blockers, tasks, drafts, suggestions, contextFindings };
+}
+
+function panelTitle(w: WorkupOutput): string {
+  return w.isDraftCommand ? 'Workup & draft' : 'Workup & tasks';
 }
 
 function workupSubtitle(w: WorkupOutput): string {
+  if (w.isDraftCommand) {
+    const parts: string[] = [];
+    if (w.drafts.length)          parts.push(`${w.drafts.length} draft${w.drafts.length !== 1 ? 's' : ''} saved`);
+    if (w.contextFindings.length) parts.push(`${w.contextFindings.length} context finding${w.contextFindings.length !== 1 ? 's' : ''} used`);
+    return parts.length ? parts.join(' · ') : 'Run a command to see results';
+  }
   const parts: string[] = [];
   if (w.blockers.length)    parts.push(`${w.blockers.length} blocker${w.blockers.length !== 1 ? 's' : ''} found`);
   if (w.tasks.length)       parts.push(`${w.tasks.length} task${w.tasks.length !== 1 ? 's' : ''} created`);
@@ -369,10 +411,13 @@ export function BackOfficeCommandCenter() {
 
         const newWorkup = buildWorkupOutput(data);
         setWorkup(prev => ({
-          blockers:    [...newWorkup.blockers,    ...prev.blockers],
-          tasks:       [...newWorkup.tasks,       ...prev.tasks],
-          drafts:      [...newWorkup.drafts,      ...prev.drafts],
-          suggestions: [...newWorkup.suggestions, ...prev.suggestions],
+          commandType:     newWorkup.commandType,
+          isDraftCommand:  newWorkup.isDraftCommand,
+          contextFindings: newWorkup.contextFindings,         // replace — per latest command
+          blockers:        [...newWorkup.blockers, ...prev.blockers],
+          tasks:           [...newWorkup.tasks,    ...prev.tasks],
+          drafts:          [...newWorkup.drafts,   ...prev.drafts],
+          suggestions:     [...newWorkup.suggestions, ...prev.suggestions],
         }));
         const allNewIds = [
           ...newWorkup.blockers, ...newWorkup.tasks,
@@ -516,43 +561,70 @@ export function BackOfficeCommandCenter() {
           </div>
         </div>
 
-        {/* Workup & tasks */}
+        {/* Workup & tasks / Workup & draft */}
         <div className="card">
           <div className="card-head">
             <div>
-              <h2>Workup &amp; tasks</h2>
+              <h2>{panelTitle(workup)}</h2>
               <div className="sub">{workupSubtitle(workup)}</div>
             </div>
           </div>
           <div className="card-body" style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-            {workup.blockers.length === 0 && workup.tasks.length === 0 && workup.drafts.length === 0 && workup.suggestions.length === 0 && (
+            {workup.blockers.length === 0 && workup.tasks.length === 0 && workup.drafts.length === 0 && workup.contextFindings.length === 0 && workup.suggestions.length === 0 && (
               <div style={{ padding: '28px 0', textAlign: 'center', color: 'var(--fg3)', fontSize: 13 }}>
                 Run a command to see results here
               </div>
             )}
-            {workup.blockers.length > 0 && (
-              <section style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                <PanelSectionHeader label="Blockers found" />
-                {workup.blockers.map(a => <BlockerRow key={a.id} a={a} flash={flashIds.includes(a.id)} />)}
-              </section>
-            )}
-            {workup.tasks.length > 0 && (
-              <section style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                <PanelSectionHeader label="Tasks created" />
-                {workup.tasks.map(a => <ActionCard key={a.id} a={a} flash={flashIds.includes(a.id)} />)}
-              </section>
-            )}
-            {workup.drafts.length > 0 && (
-              <section style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                <PanelSectionHeader label="Drafts saved" />
-                {workup.drafts.map(a => <ActionCard key={a.id} a={a} flash={flashIds.includes(a.id)} />)}
-              </section>
-            )}
-            {workup.suggestions.length > 0 && (
-              <section style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                <PanelSectionHeader label="Suggested actions" />
-                {workup.suggestions.map(a => <ActionCard key={a.id} a={a} flash={flashIds.includes(a.id)} />)}
-              </section>
+
+            {workup.isDraftCommand ? (
+              /* ── Draft command layout ─────────────────────────────── */
+              <>
+                {workup.drafts.length > 0 && (
+                  <section style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                    <PanelSectionHeader label="Draft saved" />
+                    {workup.drafts.map(a => <ActionCard key={a.id} a={a} flash={flashIds.includes(a.id)} />)}
+                  </section>
+                )}
+                {workup.contextFindings.length > 0 && (
+                  <section style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                    <PanelSectionHeader label="Context used" />
+                    {workup.contextFindings.map((f, i) => <ContextFindingItem key={i} label={f} />)}
+                  </section>
+                )}
+                {workup.suggestions.length > 0 && (
+                  <CollapsibleSection label="Optional next steps">
+                    {workup.suggestions.map(a => <ActionCard key={a.id} a={a} flash={flashIds.includes(a.id)} />)}
+                  </CollapsibleSection>
+                )}
+              </>
+            ) : (
+              /* ── Task / lookup command layout ─────────────────────── */
+              <>
+                {workup.blockers.length > 0 && (
+                  <section style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                    <PanelSectionHeader label="Blockers found" />
+                    {workup.blockers.map(a => <BlockerRow key={a.id} a={a} flash={flashIds.includes(a.id)} />)}
+                  </section>
+                )}
+                {workup.tasks.length > 0 && (
+                  <section style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                    <PanelSectionHeader label="Tasks created" />
+                    {workup.tasks.map(a => <ActionCard key={a.id} a={a} flash={flashIds.includes(a.id)} />)}
+                  </section>
+                )}
+                {workup.drafts.length > 0 && (
+                  <section style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                    <PanelSectionHeader label="Drafts saved" />
+                    {workup.drafts.map(a => <ActionCard key={a.id} a={a} flash={flashIds.includes(a.id)} />)}
+                  </section>
+                )}
+                {workup.suggestions.length > 0 && (
+                  <section style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                    <PanelSectionHeader label="Suggested actions" />
+                    {workup.suggestions.map(a => <ActionCard key={a.id} a={a} flash={flashIds.includes(a.id)} />)}
+                  </section>
+                )}
+              </>
             )}
           </div>
         </div>
@@ -759,6 +831,64 @@ function CreatedItemsSummary({ items }: { items: BackofficeCreatedItemSummary[] 
       <IconCheckCircle size={12} />
       {parts.join(' · ')}
     </div>
+  );
+}
+
+// ── Context finding (compact blocker row for draft mode) ─────────────────────
+
+function ContextFindingItem({ label }: { label: string }) {
+  return (
+    <div style={{
+      display: 'flex',
+      alignItems: 'flex-start',
+      gap: 8,
+      fontSize: 12.5,
+      color: 'var(--fg2)',
+      padding: '4px 0',
+    }}>
+      <span style={{ color: 'var(--fg3)', fontSize: 10, marginTop: 3, flexShrink: 0 }}>●</span>
+      {label}
+    </div>
+  );
+}
+
+// ── Collapsible section (optional next steps for draft mode) ──────────────────
+
+function CollapsibleSection({ label, children }: { label: string; children: React.ReactNode }) {
+  const [open, setOpen] = React.useState(false);
+  return (
+    <section style={{ display: 'flex', flexDirection: 'column', gap: 0 }}>
+      <button
+        onClick={() => setOpen(o => !o)}
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          width: '100%',
+          fontSize: 10.5,
+          fontWeight: 700,
+          letterSpacing: '0.07em',
+          textTransform: 'uppercase',
+          color: 'var(--fg3)',
+          background: 'none',
+          border: 'none',
+          borderBottom: '1px solid var(--border-muted)',
+          padding: '0 0 6px',
+          cursor: 'pointer',
+          textAlign: 'left',
+        }}
+      >
+        {label}
+        <span style={{ fontSize: 9, letterSpacing: 0, textTransform: 'none', fontWeight: 400 }}>
+          {open ? '▲' : '▼'}
+        </span>
+      </button>
+      {open && (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginTop: 8 }}>
+          {children}
+        </div>
+      )}
+    </section>
   );
 }
 
