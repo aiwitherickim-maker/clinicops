@@ -1026,39 +1026,28 @@ const MOCK_DRAFTS: DbBackofficeDraft[] = [
     command_id: null,
     draft_type: 'payer_call_script',
     title: 'Payer Call Script: Blue Cross Blue Shield — Urgent PA Initiation & Benefits Verification for Alicia Reed',
-    content: `PAYER CALL SCRIPT — URGENT PRIOR AUTHORIZATION
-Patient: Alicia Reed | DOB: 04/12/1978
-Payer: Blue Cross Blue Shield | Member ID: (verify during call)
-Procedure: Vitreoretinal Surgery (CPT 67108)
+    content: `Payer Call Script — Blue Cross Blue Shield / Alicia Reed
 
-OPENING
-"Hello, this is [Name] calling from [Clinic Name]. I am calling to initiate an urgent prior authorization request and verify benefits for one of our patients. May I speak with your prior authorization department?"
+Opening:
+This is [Name] calling from Ann Arbor Retina Clinic on behalf of patient Alicia Reed (DOB 04/12/1978, member ID on file). I'm calling to initiate an urgent prior authorization for vitreoretinal surgery (CPT 67108) scheduled in approximately 5 days, and to verify her outpatient surgical benefits.
 
-PATIENT VERIFICATION
-Provide: Full name, DOB, Member ID, Group number
-Ask: "Can you confirm the patient's current eligibility status?"
+Key questions:
+• Can you confirm current eligibility and active coverage for this member?
+• Is CPT 67108 covered under her plan, and is prior authorization required?
+• What is the process for an urgent PA request — and the expected turnaround time?
+• What clinical documentation is required for submission?
+• What is the in-network deductible, and how much has been met this year?
+• What is her out-of-pocket maximum and current balance?
+• What is the patient's coinsurance or copay for outpatient surgery?
 
-PRIOR AUTHORIZATION REQUEST
-"We are requesting urgent prior authorization for CPT 67108 — Vitreoretinal Surgery. The procedure is scheduled for [DATE]. This is time-sensitive due to the patient's condition."
-Ask: "What is the estimated turnaround time for an urgent PA review?"
-Ask: "What is the reference number for this PA request?"
+Document these fields:
+• PA reference number
+• Rep name and call time
+• Deductible met / remaining
+• Coinsurance % for surgical procedures
+• PA fax number or submission portal
 
-BENEFITS VERIFICATION CHECKLIST
-□ In-network vs out-of-network benefits
-□ Annual deductible (amount met/remaining)
-□ Out-of-pocket maximum
-□ Coinsurance/copay for surgical procedures
-□ Pre-certification requirements
-□ Documentation requirements for PA submission
-
-DOCUMENTATION LOG
-Reference #: _____________
-Rep Name: _____________
-Call Date/Time: _____________
-Notes: _____________
-
-CLOSING
-"Thank you. I will ensure all required documentation is submitted within [X] business days. Please confirm the fax number for PA submissions."`,
+Note: Do not communicate PA status, coverage confirmation, or estimated patient cost to the patient until the information has been verified in the system.`,
     intended_audience: 'internal',
     intended_sender_role: 'billing',
     status: 'ready_for_review',

@@ -315,6 +315,75 @@ function DraftRow({
   );
 }
 
+// ── DraftContent ─────────────────────────────────────────────────────────────
+
+function DraftContent({ text }: { text: string }) {
+  // Collapse 3+ consecutive blank lines → 1 blank line, trim trailing whitespace per line
+  const normalised = text
+    .split('\n')
+    .map(l => l.trimEnd())
+    .join('\n')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
+
+  const lines = normalised.split('\n');
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 0 }}>
+      {lines.map((line, i) => {
+        if (line === '') {
+          return <div key={i} style={{ height: 10 }} />;
+        }
+
+        // Bullet line
+        const isBullet = /^[•\-\*·□✓]\s/.test(line) || /^\d+\.\s/.test(line);
+        if (isBullet) {
+          return (
+            <div key={i} style={{
+              fontSize: 13,
+              lineHeight: 1.6,
+              color: 'var(--fg1)',
+              paddingLeft: 16,
+              marginBottom: 2,
+              position: 'relative',
+            }}>
+              <span style={{ position: 'absolute', left: 0, color: 'var(--fg3)' }}>
+                {line.match(/^(\d+\.)/)?.[1] ?? '•'}
+              </span>
+              {line.replace(/^[•\-\*·□✓]\s/, '').replace(/^\d+\.\s/, '')}
+            </div>
+          );
+        }
+
+        // Section heading: line ends with ":" and is short (≤ 60 chars) and not a sentence
+        const isHeading = line.endsWith(':') && line.length <= 60 && !line.includes('. ');
+        if (isHeading) {
+          return (
+            <div key={i} style={{
+              fontSize: 11.5,
+              fontWeight: 700,
+              color: 'var(--fg2)',
+              textTransform: 'uppercase',
+              letterSpacing: '0.06em',
+              marginTop: i === 0 ? 0 : 12,
+              marginBottom: 4,
+            }}>
+              {line.replace(/:$/, '')}
+            </div>
+          );
+        }
+
+        // Normal paragraph line
+        return (
+          <div key={i} style={{ fontSize: 13, lineHeight: 1.65, color: 'var(--fg1)', marginBottom: 2 }}>
+            {line}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
 // ── DraftDetail ───────────────────────────────────────────────────────────────
 
 function DraftDetail({
@@ -361,21 +430,16 @@ function DraftDetail({
       {/* Content */}
       <div
         style={{
-          whiteSpace:     'pre-wrap',
-          fontFamily:     'var(--font-mono, monospace)',
-          fontSize:       12.5,
-          lineHeight:     1.7,
-          color:          'var(--fg1)',
-          background:     'var(--shell)',
-          border:         '1px solid var(--border)',
-          borderRadius:   8,
-          padding:        '14px 16px',
-          maxHeight:      340,
-          overflowY:      'auto',
-          marginBottom:   16,
+          maxHeight: 380,
+          overflowY: 'auto',
+          background: 'var(--shell)',
+          border: '1px solid var(--border)',
+          borderRadius: 8,
+          padding: '14px 16px',
+          marginBottom: 16,
         }}
       >
-        {draft.content}
+        <DraftContent text={draft.content} />
       </div>
 
       {/* Actions */}
