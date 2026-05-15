@@ -7,10 +7,11 @@
 //   5. DB writes      → create tasks, save command record
 
 import { runBackofficeCommandAgent } from './agents/backofficeCommandAgent';
+import type { ParsedBackofficeCommand } from './agents/backofficeCommandAgent';
 import { runBackofficeWorkupAgent } from './agents/backofficeWorkupAgent';
 import { runBackofficeExecutionAgent } from './agents/backofficeExecutionAgent';
 import type { BackofficeBlocker, BackofficeRecommendedAction, BackofficeWorkupResult } from './agents/backofficeWorkupAgent';
-import type { BackofficeDraft, BackofficeCreatedItem } from './agents/backofficeExecutionAgent';
+import type { BackofficeDraft, BackofficeCreatedItem, ExecutionScope } from './agents/backofficeExecutionAgent';
 import {
   getAdminCaseSummary,
   findPatientCandidates,
@@ -104,6 +105,20 @@ function buildCaseSummaryStrings(s: AdminCaseSummary): BackofficeCommandResult['
 
 function pluralise(n: number, word: string) {
   return `${n} ${word}${n !== 1 ? 's' : ''}`;
+}
+
+// Broad-request action keys set by the command agent for open-ended create_tasks commands
+const BROAD_ACTION_KEYS = new Set(['all_urgent', 'full_worklist', 'all_tasks', 'handle_case', 'full_workup']);
+
+function deriveExecutionScope(command: string, parsedCommand: ParsedBackofficeCommand): ExecutionScope {
+  if (parsedCommand.command_type !== 'create_tasks') return 'workup_recommended_actions';
+  if (parsedCommand.requested_actions.length === 0)  return 'workup_recommended_actions';
+
+  const hasBroadPattern = /\b(all|every|full case|worklist|handle this|everything|open tasks)\b/i.test(command);
+  const hasBroadKey     = parsedCommand.requested_actions.some((a: string) => BROAD_ACTION_KEYS.has(a));
+  if (hasBroadPattern || hasBroadKey) return 'workup_recommended_actions';
+
+  return 'requested_actions_only';
 }
 
 function inferSenderRole(draftType: string): string {
@@ -276,11 +291,26 @@ export async function runBackofficeWorkflow(
     }
 
     // ── 5. Execution agent ────────────────────────────────────────────────────
-    const execution = await runBackofficeExecutionAgent(parsedCommand, workup, caseSummary);
+    const executionScope = deriveExecutionScope(command, parsedCommand);
+    console.log('[backofficeOrchestrator] executionScope:', executionScope, '| requestedActions:', parsedCommand.requested_actions);
+
+    const execution = await runBackofficeExecutionAgent(parsedCommand, workup, caseSummary, executionScope);
     console.log('[backofficeOrchestrator] execution:', JSON.stringify({
       tasks: execution.tasks_to_create?.length ?? 0,
       drafts: execution.drafts?.length ?? 0,
+      scope: executionScope,
     }));
+
+    // Guardrail: if scope is requested_actions_only, trim surplus tasks and log a warning
+    if (executionScope === 'requested_actions_only' && execution.tasks_to_create) {
+      const maxTasks = parsedCommand.requested_actions.length;
+      if (execution.tasks_to_create.length > maxTasks) {
+        console.warn(
+          `[backofficeOrchestrator] GUARDRAIL: trimming tasks from ${execution.tasks_to_create.length} → ${maxTasks} (requested_actions_only)`,
+        );
+        execution.tasks_to_create = execution.tasks_to_create.slice(0, maxTasks);
+      }
+    }
 
     result.drafts              = execution.drafts ?? [];
     result.assistant_response  = execution.assistant_response;

@@ -28,6 +28,8 @@ export interface BackofficeCreatedItem {
   draftId?: string;
 }
 
+export type ExecutionScope = 'requested_actions_only' | 'workup_recommended_actions';
+
 export interface BackofficeExecutionResult {
   tasks_to_create: BackofficeTaskSpec[];
   drafts: BackofficeDraft[];
@@ -44,7 +46,23 @@ const FALLBACK_EXECUTION: BackofficeExecutionResult = {
   audit_notes: 'Execution agent fallback used.',
 };
 
-function buildSystemPrompt(commandType: string): string {
+function buildTaskInstruction(
+  shouldCreateTasks: boolean,
+  scope: ExecutionScope,
+  requestedActions: string[],
+): string {
+  if (!shouldCreateTasks) return 'leave empty []';
+  if (scope === 'requested_actions_only') {
+    return `POPULATE — create EXACTLY ${requestedActions.length} task(s), one per requested action listed below.
+  Requested actions: ${requestedActions.join(', ')}
+  CRITICAL RULE: Do NOT create additional tasks for blockers or recommended actions beyond this list.
+  Blockers from the workup are CONTEXT to include inside task descriptions — they are NOT separate tasks.
+  Correct output for this command: exactly ${requestedActions.length} task(s).`;
+  }
+  return 'POPULATE — create one task per recommended action that maps to create_task';
+}
+
+function buildSystemPrompt(commandType: string, scope: ExecutionScope, requestedActions: string[]): string {
   const shouldCreateTasks  = commandType === 'create_tasks';
   const shouldDraftPayer   = commandType === 'draft_payer_script';
   const shouldDraftPatient = commandType === 'draft_patient_update';
@@ -57,7 +75,7 @@ Prepare the outputs appropriate to the command.
 Return ONLY valid JSON — no markdown fences, no explanation.
 
 Active outputs for this command type ("${commandType}"):
-  tasks_to_create : ${shouldCreateTasks ? 'POPULATE — create one task per recommended action that maps to create_task' : 'leave empty []'}
+  tasks_to_create : ${buildTaskInstruction(shouldCreateTasks, scope, requestedActions)}
   drafts          : ${shouldDraftPayer ? 'POPULATE — write payer_call_script' : shouldDraftPatient ? 'POPULATE — write patient_update' : 'leave empty []'}
   assistant_response : ALWAYS populate — ${isLookup ? 'summarise the case status and blockers clearly' : 'describe what was done'}
 
@@ -131,6 +149,7 @@ export async function runBackofficeExecutionAgent(
   parsedCommand: ParsedBackofficeCommand,
   workup: BackofficeWorkupResult,
   caseSummary: AdminCaseSummary | null,
+  executionScope: ExecutionScope = 'workup_recommended_actions',
 ): Promise<BackofficeExecutionResult> {
   const apiKey = process.env.ANTHROPIC_API_KEY;
   if (!apiKey) {
@@ -140,7 +159,12 @@ export async function runBackofficeExecutionAgent(
 
   const client = new Anthropic({ apiKey });
 
+  const scopeLine = executionScope === 'requested_actions_only'
+    ? `Execution scope: REQUESTED_ACTIONS_ONLY — create exactly ${parsedCommand.requested_actions.length} task(s): ${parsedCommand.requested_actions.join(', ')}`
+    : 'Execution scope: WORKUP_RECOMMENDED_ACTIONS — create tasks from recommended actions';
+
   const userContent = `Command type: ${parsedCommand.command_type}
+${scopeLine}
 Staff intent: ${parsedCommand.context_notes}
 
 Case workup:
@@ -154,7 +178,7 @@ ${caseSummary ? JSON.stringify(caseSummary, null, 2) : 'No patient data availabl
     const response = await client.messages.create({
       model: 'claude-sonnet-4-6',
       max_tokens: 2048,
-      system: buildSystemPrompt(parsedCommand.command_type),
+      system: buildSystemPrompt(parsedCommand.command_type, executionScope, parsedCommand.requested_actions),
       messages: [{ role: 'user', content: userContent }],
     });
 

@@ -49,19 +49,27 @@ Return exactly this shape:
   "context_notes": "<one sentence: what does the staff member actually want?>"
 }
 
+For create_tasks commands: requested_actions MUST list each specific task the staff named,
+one entry per task, using concise snake_case identifiers.
+Examples of valid action identifiers: benefits_verification, prior_authorization,
+insurance_eligibility, payer_call, financial_clearance, billing_followup, clinical_review.
+For broad/open-ended requests use: all_urgent, full_worklist, or full_workup.
+
 Examples:
   "What billing and prior auth work needs attention for Alicia Reed?"
-    → case_lookup, "Alicia Reed"
+    → { "command_type": "case_lookup", "patient_name": "Alicia Reed", "requested_actions": [] }
   "Create the benefits verification and prior auth tasks for Alicia."
-    → create_tasks, "Alicia Reed"
+    → { "command_type": "create_tasks", "patient_name": "Alicia", "requested_actions": ["benefits_verification", "prior_authorization"] }
+  "Create all urgent tasks for Alicia's case."
+    → { "command_type": "create_tasks", "patient_name": "Alicia", "requested_actions": ["all_urgent"] }
   "Draft a payer call script for Alicia Reed's Blue Cross prior auth."
-    → draft_payer_script, "Alicia Reed"
+    → { "command_type": "draft_payer_script", "patient_name": "Alicia Reed", "requested_actions": [] }
   "Draft a patient update for Alicia explaining that billing is verifying benefits."
-    → draft_patient_update, "Alicia Reed"
+    → { "command_type": "draft_patient_update", "patient_name": "Alicia", "requested_actions": [] }
   "Show me all open prior auth cases."
-    → prior_auth_worklist, null
+    → { "command_type": "prior_auth_worklist", "patient_name": null, "requested_actions": [] }
   "What is blocking Alicia Reed's case?"
-    → summarize_blockers, "Alicia Reed"`;
+    → { "command_type": "summarize_blockers", "patient_name": "Alicia Reed", "requested_actions": [] }`;
 
 const KNOWN_PATIENTS = [
   'Alicia Reed', 'Maya Thompson', 'Daniel Brooks', 'Priya Shah', 'Robert Chen',
