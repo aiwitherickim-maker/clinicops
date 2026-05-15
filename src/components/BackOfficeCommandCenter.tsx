@@ -33,7 +33,7 @@ function dbMsgToChat(m: DbChatMsg): CommandChatMessage {
 }
 import { Button, Badge, IconTile, Dot } from './Primitives';
 import {
-  IconBook, IconClock, IconSparkles, IconSend, IconPlus,
+  IconSparkles, IconSend,
   IconBot, IconCheckCircle, IconLayers, IconAlert,
 } from './Icons';
 
@@ -448,8 +448,6 @@ export function BackOfficeCommandCenter() {
           <p className="lede">Ask in plain English. ClinicOps will turn requests into tasks, drafts, and worklists — non-technical staff stay in control.</p>
         </div>
         <div className="actions">
-          <Button variant="secondary" size="sm"><IconBook size={14} /> Prompt library</Button>
-          <Button variant="secondary" size="sm"><IconClock size={14} /> Activity log</Button>
           <ResetButton onClick={handleClearHistory} label="Clear history" />
         </div>
       </div>
@@ -462,11 +460,7 @@ export function BackOfficeCommandCenter() {
               <IconTile tone="forest" iconKey="terminal" />
               <div>
                 <h2 style={{ margin: 0, fontSize: 17, fontWeight: 700 }}>ClinicOps</h2>
-                <div className="sub" style={{ marginTop: 2 }}>Plain-English back-office operations · audited</div>
-              </div>
-              <div style={{ marginLeft: 'auto', display: 'flex', gap: 6 }}>
-                <Badge tone="sage" dot>Live</Badge>
-                <Badge tone="neutral">{new Date().toLocaleDateString('en-US', { weekday: 'short', hour: 'numeric', minute: '2-digit' })}</Badge>
+                <div className="sub" style={{ marginTop: 2 }}>Ask ClinicOps to create tasks, draft messages, and organize follow-ups.</div>
               </div>
             </div>
           </div>
@@ -529,7 +523,6 @@ export function BackOfficeCommandCenter() {
               <h2>Workup &amp; tasks</h2>
               <div className="sub">{workupSubtitle(workup)}</div>
             </div>
-            <Button variant="ghost" size="sm"><IconPlus size={13} /> Add manually</Button>
           </div>
           <div className="card-body" style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
             {workup.blockers.length === 0 && workup.tasks.length === 0 && workup.drafts.length === 0 && workup.suggestions.length === 0 && (
