@@ -79,13 +79,22 @@ export type ResponseType =
   | 'draft_review'                 // draft_patient_reply: human must approve before sending
   | 'no_reply';                    // no patient-facing response
 
+export interface StageLog {
+  stage: string;
+  label: string;
+  status: 'completed' | 'skipped' | 'failed';
+  timestamp: string;
+  details?: string;
+}
+
 export interface ChatMessage {
-  who: 'patient' | 'assistant';
+  who: 'patient' | 'assistant' | 'agent-trail';
   text: string;
   t: string;
   draft?: boolean;
   responseType?: ResponseType;
   badgeText?: string;
+  stageLogs?: StageLog[];
 }
 
 export interface PlannerAction {
@@ -122,14 +131,6 @@ export interface SimConversation {
   label: string;
   initialMessages: ChatMessage[];
   workflow: WorkflowStep;
-}
-
-export interface StageLog {
-  stage: string;
-  label: string;
-  status: 'started' | 'completed' | 'skipped' | 'failed';
-  timestamp: string;
-  details?: string;
 }
 
 export interface BackofficeBlockerSummary {

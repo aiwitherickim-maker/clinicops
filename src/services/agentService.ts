@@ -1,4 +1,4 @@
-import type { InboxMessage, CommandAction, WorkflowStep, ChatMessage, ResponseType } from '@/types';
+import type { InboxMessage, CommandAction, WorkflowStep, ChatMessage, ResponseType, StageLog } from '@/types';
 
 // ─── Patient message analysis ─────────────────────────────────────────────────
 
@@ -8,6 +8,7 @@ export interface AnalyzeResult {
   badgeText: string;
   responseType: ResponseType;
   messageId: string | null;
+  stageLogs: StageLog[];
 }
 
 // Calls the server-side API route which runs Intent + Safety agents via Claude.

@@ -3,7 +3,7 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { CLINIC } from '@/data/mockClinic';
 import { SIM_CONVERSATIONS } from '@/data/mockMessages';
-import type { ChatMessage, WorkflowStep, ResponseType } from '@/types';
+import type { ChatMessage, WorkflowStep, ResponseType, StageLog } from '@/types';
 import { Badge, IconTile, ConfidenceMini, Dot } from './Primitives';
 import { IconSend, IconLayers } from './Icons';
 import { analyzePatientMessageAndPersist } from '@/services/agentService';
@@ -99,14 +99,24 @@ export function PatientChatSimulator() {
       const result = await analyzePatientMessageAndPersist(userText, patientName);
 
       setWorkflow(result.workflow);
-      setMessages((m) => [...m, {
-        who: 'assistant',
-        text: result.draftText,
-        t: time,
-        draft: true,
-        responseType: result.responseType,
-        badgeText: result.badgeText,
-      }]);
+      setMessages((m) => [
+        ...m,
+        // Agent trail — only for live messages, not history
+        ...(result.stageLogs?.length ? [{
+          who: 'agent-trail' as const,
+          text: '',
+          t: time,
+          stageLogs: result.stageLogs,
+        }] : []),
+        {
+          who: 'assistant' as const,
+          text: result.draftText,
+          t: time,
+          draft: true,
+          responseType: result.responseType,
+          badgeText: result.badgeText,
+        },
+      ]);
     } catch (err) {
       console.error('[PatientChatSimulator] workflow error:', err);
       setMessages((m) => [...m, {
@@ -247,6 +257,7 @@ function responseBadge(rt: ResponseType | undefined): { tone: 'green' | 'sage' |
 }
 
 function ChatBubble({ m }: { m: ChatMessage }) {
+  if (m.who === 'agent-trail') return <AgentTrailBubble logs={m.stageLogs ?? []} t={m.t} />;
   if (m.who === 'patient') {
     return (
       <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end' }}>
@@ -266,6 +277,58 @@ function ChatBubble({ m }: { m: ChatMessage }) {
       </div>
       <div className={`bubble assistant${m.draft ? ' draft' : ''}`}>{m.text}</div>
       <div className="bubble-meta">{m.t}</div>
+    </div>
+  );
+}
+
+function AgentTrailBubble({ logs, t }: { logs: StageLog[]; t: string }) {
+  const visible = logs.filter(l => l.status !== 'skipped');
+  return (
+    <div style={{ alignSelf: 'flex-start', maxWidth: '90%', marginBottom: 2 }}>
+      <div style={{
+        background: 'var(--shell)',
+        border: '1px solid var(--border)',
+        borderRadius: 12,
+        padding: '8px 12px',
+        display: 'flex',
+        flexDirection: 'column',
+        gap: 3,
+      }}>
+        <div style={{
+          fontSize: 10,
+          fontWeight: 600,
+          letterSpacing: '0.06em',
+          textTransform: 'uppercase',
+          color: 'var(--fg3)',
+          marginBottom: 4,
+          display: 'flex',
+          justifyContent: 'space-between',
+          alignItems: 'center',
+        }}>
+          <span>Agent process</span>
+          <span style={{ fontWeight: 400, textTransform: 'none', letterSpacing: 0 }}>{t}</span>
+        </div>
+        {visible.map((log, i) => (
+          <div key={i} style={{ display: 'flex', alignItems: 'baseline', gap: 6, lineHeight: 1.4 }}>
+            <span style={{
+              fontSize: 11,
+              flexShrink: 0,
+              color: log.status === 'failed' ? 'var(--red-deep, #b91c1c)' : 'var(--sage-deep, #2d6a4f)',
+              fontWeight: 600,
+            }}>
+              {log.status === 'failed' ? '✗' : '✓'}
+            </span>
+            <span style={{ fontSize: 11.5, color: log.status === 'failed' ? 'var(--red-deep, #b91c1c)' : 'var(--fg2)' }}>
+              {log.label}
+              {log.details && (
+                <span style={{ color: 'var(--fg3)', fontSize: 10.5, marginLeft: 4 }}>
+                  · {log.details}
+                </span>
+              )}
+            </span>
+          </div>
+        ))}
+      </div>
     </div>
   );
 }

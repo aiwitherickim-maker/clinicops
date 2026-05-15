@@ -36,6 +36,7 @@ export async function POST(req: NextRequest) {
       badgeText:     result.badgeText,
       responseType:  result.responseType,
       messageId:     result.messageId,
+      stageLogs:     result.stageLogs,
     });
 
   } catch (err) {
