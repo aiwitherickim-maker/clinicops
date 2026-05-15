@@ -90,7 +90,13 @@ export function PatientChatSimulator() {
     if (!userText) return;
 
     const time = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-    setMessages((m) => [...m, { who: 'patient', text: userText, t: time }]);
+
+    // Insert patient message + pending trail immediately (replaces the typing dots)
+    setMessages((m) => [
+      ...m,
+      { who: 'patient', text: userText, t: time },
+      { who: 'agent-trail' as const, text: '', t: time, stageLogs: [] },
+    ]);
     setInput('');
     setRunning(true);
     setShowWorkflow(false);
@@ -99,15 +105,10 @@ export function PatientChatSimulator() {
       const result = await analyzePatientMessageAndPersist(userText, patientName);
 
       setWorkflow(result.workflow);
+      // Replace pending trail (last item) with completed trail + assistant response
       setMessages((m) => [
-        ...m,
-        // Agent trail — only for live messages, not history
-        ...(result.stageLogs?.length ? [{
-          who: 'agent-trail' as const,
-          text: '',
-          t: time,
-          stageLogs: result.stageLogs,
-        }] : []),
+        ...m.slice(0, -1),
+        { who: 'agent-trail' as const, text: '', t: time, stageLogs: result.stageLogs ?? [] },
         {
           who: 'assistant' as const,
           text: result.draftText,
@@ -119,13 +120,16 @@ export function PatientChatSimulator() {
       ]);
     } catch (err) {
       console.error('[PatientChatSimulator] workflow error:', err);
-      setMessages((m) => [...m, {
-        who: 'assistant',
-        text: "I've received your message and routed it to our team. A staff member will respond shortly. For urgent concerns, please call (734) 555-0142.",
-        t: time,
-        draft: true,
-        responseType: 'draft_review' as ResponseType,
-      }]);
+      setMessages((m) => [
+        ...m.slice(0, -1),
+        {
+          who: 'assistant' as const,
+          text: "I've received your message and routed it to our team. A staff member will respond shortly. For urgent concerns, please call (734) 555-0142.",
+          t: time,
+          draft: true,
+          responseType: 'draft_review' as ResponseType,
+        },
+      ]);
     } finally {
       setShowWorkflow(true);
       setRunning(false);
@@ -172,11 +176,6 @@ export function PatientChatSimulator() {
                 messages.map((m, i) => (
                   <ChatBubble key={i} m={m} />
                 ))
-              )}
-              {running && (
-                <div style={{ alignSelf: 'flex-start', display: 'flex', gap: 6, padding: '8px 14px', background: 'var(--paper)', border: '1px solid var(--border)', borderRadius: 16 }}>
-                  <Dot delay={0} /><Dot delay={120} /><Dot delay={240} />
-                </div>
               )}
             </div>
 
@@ -282,52 +281,82 @@ function ChatBubble({ m }: { m: ChatMessage }) {
 }
 
 function AgentTrailBubble({ logs, t }: { logs: StageLog[]; t: string }) {
-  const visible = logs.filter(l => l.status !== 'skipped');
+  const [expanded, setExpanded] = React.useState(false);
+  const isPending  = logs.length === 0;
+  const hasFailure = logs.some(l => l.status === 'failed');
+  const visible    = logs.filter(l => l.status !== 'skipped');
+  const statusText = isPending
+    ? 'Running workflow…'
+    : hasFailure ? 'Completed with errors' : 'Workflow complete';
+
   return (
-    <div style={{ alignSelf: 'flex-start', maxWidth: '90%', marginBottom: 2 }}>
-      <div style={{
-        background: 'var(--shell)',
-        border: '1px solid var(--border)',
-        borderRadius: 12,
-        padding: '8px 12px',
-        display: 'flex',
-        flexDirection: 'column',
-        gap: 3,
-      }}>
-        <div style={{
-          fontSize: 10,
-          fontWeight: 600,
-          letterSpacing: '0.06em',
-          textTransform: 'uppercase',
-          color: 'var(--fg3)',
-          marginBottom: 4,
-          display: 'flex',
-          justifyContent: 'space-between',
-          alignItems: 'center',
-        }}>
-          <span>Agent process</span>
-          <span style={{ fontWeight: 400, textTransform: 'none', letterSpacing: 0 }}>{t}</span>
-        </div>
-        {visible.map((log, i) => (
-          <div key={i} style={{ display: 'flex', alignItems: 'baseline', gap: 6, lineHeight: 1.4 }}>
-            <span style={{
-              fontSize: 11,
-              flexShrink: 0,
-              color: log.status === 'failed' ? 'var(--red-deep, #b91c1c)' : 'var(--sage-deep, #2d6a4f)',
-              fontWeight: 600,
-            }}>
-              {log.status === 'failed' ? '✗' : '✓'}
+    <div style={{ alignSelf: 'flex-start', maxWidth: '88%', marginBottom: 2 }}>
+      <div style={{ background: 'var(--shell)', border: '1px solid var(--border)', borderRadius: 12, overflow: 'hidden' }}>
+
+        {/* Header row — always visible */}
+        <button
+          onClick={() => !isPending && setExpanded(e => !e)}
+          disabled={isPending}
+          style={{
+            width: '100%',
+            display: 'flex',
+            alignItems: 'center',
+            gap: 5,
+            padding: '7px 12px',
+            background: 'none',
+            border: 'none',
+            cursor: isPending ? 'default' : 'pointer',
+            textAlign: 'left',
+            outline: 'none',
+          }}
+        >
+          <span style={{ fontSize: 10, fontWeight: 600, letterSpacing: '0.05em', textTransform: 'uppercase', color: 'var(--fg3)', flexShrink: 0 }}>
+            Agent process
+          </span>
+          <span style={{ fontSize: 10, color: 'var(--fg3)' }}>·</span>
+          <span style={{
+            fontSize: 10.5, flex: 1,
+            color: hasFailure ? 'var(--red-deep, #b91c1c)' : isPending ? 'var(--fg3)' : 'var(--sage-deep, #2d6a4f)',
+          }}>
+            {statusText}
+          </span>
+          {isPending && (
+            <span style={{ display: 'inline-flex', gap: 2, marginRight: 4 }}>
+              <Dot delay={0} /><Dot delay={120} /><Dot delay={240} />
             </span>
-            <span style={{ fontSize: 11.5, color: log.status === 'failed' ? 'var(--red-deep, #b91c1c)' : 'var(--fg2)' }}>
-              {log.label}
-              {log.details && (
-                <span style={{ color: 'var(--fg3)', fontSize: 10.5, marginLeft: 4 }}>
-                  · {log.details}
+          )}
+          {!isPending && (
+            <span style={{ fontSize: 9, color: 'var(--fg3)', marginRight: 6 }}>
+              {expanded ? '▲' : '▾'}
+            </span>
+          )}
+          <span style={{ fontSize: 10, color: 'var(--fg3)', flexShrink: 0 }}>{t}</span>
+        </button>
+
+        {/* Expanded log entries */}
+        {!isPending && expanded && (
+          <div style={{ borderTop: '1px solid var(--border)', padding: '5px 12px 8px', display: 'flex', flexDirection: 'column', gap: 2 }}>
+            {visible.map((log, i) => (
+              <div key={i} style={{ display: 'flex', alignItems: 'baseline', gap: 5 }}>
+                <span style={{
+                  fontSize: 10, flexShrink: 0, fontWeight: 700,
+                  color: log.status === 'failed' ? 'var(--red-deep, #b91c1c)' : 'var(--sage-deep, #2d6a4f)',
+                }}>
+                  {log.status === 'failed' ? '✗' : '✓'}
                 </span>
-              )}
-            </span>
+                <span style={{
+                  fontSize: 11, lineHeight: 1.4,
+                  color: log.status === 'failed' ? 'var(--red-deep, #b91c1c)' : 'var(--fg2)',
+                }}>
+                  {log.label}
+                  {log.details && (
+                    <span style={{ color: 'var(--fg3)', fontSize: 10, marginLeft: 4 }}>· {log.details}</span>
+                  )}
+                </span>
+              </div>
+            ))}
           </div>
-        ))}
+        )}
       </div>
     </div>
   );
