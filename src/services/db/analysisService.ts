@@ -30,7 +30,7 @@ export async function getAnalysisForMessage(messageId: string): Promise<DbAgentA
     .eq('message_id', messageId)
     .order('created_at', { ascending: false })
     .limit(1)
-    .single();
+    .maybeSingle();
 
   if (error) { console.error('[analysisService] getAnalysisForMessage:', error.message); return null; }
   return data;
